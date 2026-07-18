@@ -1,0 +1,6 @@
+# Omni MCP Client state
+.omc/
+
+# OS files
+Thumbs.db
+.DS_Store
