@@ -31,7 +31,7 @@ go vet ./...
 
 ## Architecture
 
-### Project: `github.com/mark3labs/mcp-filesystem-server`
+### Project: `github.com/bigmanBass666/filesystem-mcp`
 
 A Go MCP (Model Context Protocol) server that provides secure filesystem access. Implements the MCP stdio transport protocol.
 
@@ -85,4 +85,4 @@ Recursive directory traversal with configurable max depth. Returns `FileNode` JS
 
 ### Docker
 
-Multi-stage build (`golang:1.23-alpine` → `alpine:latest`). Default CMD passes `/app` as allowed directory. Published to `ghcr.io/mark3labs/mcp-filesystem-server:latest`.
+Multi-stage build (`golang:1.23-alpine` → `alpine:latest`). Default CMD passes `/app` as allowed directory.
