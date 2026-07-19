@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/mark3labs/mcp-filesystem-server/filesystemserver"
+	"github.com/bigmanBass666/filesystem-mcp/filesystemserver"
 	"github.com/mark3labs/mcp-go/server"
 )
 

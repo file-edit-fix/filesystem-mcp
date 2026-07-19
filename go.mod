@@ -1,4 +1,4 @@
-module github.com/mark3labs/mcp-filesystem-server
+module github.com/bigmanBass666/filesystem-mcp
 
 go 1.23.2
 

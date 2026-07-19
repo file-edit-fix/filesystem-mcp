@@ -3,7 +3,7 @@ package filesystemserver_test
 import (
 	"testing"
 
-	"github.com/mark3labs/mcp-filesystem-server/filesystemserver"
+	"github.com/bigmanBass666/filesystem-mcp/filesystemserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

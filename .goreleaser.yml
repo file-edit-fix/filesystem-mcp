@@ -16,7 +16,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/mark3labs/mcp-filesystem-server/filesystemserver.Version={{.Version}}
+      - -s -w -X github.com/bigmanBass666/filesystem-mcp/filesystemserver.Version={{.Version}}
     binary: mcp-filesystem-server
     main: .
 

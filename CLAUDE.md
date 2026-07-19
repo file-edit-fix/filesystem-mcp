@@ -32,7 +32,7 @@ go vet ./...
 
 ## 项目总览
 
-**模块路径：** `github.com/mark3labs/mcp-filesystem-server`（Go 1.23.2）
+**模块路径：** `github.com/bigmanBass666/filesystem-mcp`（Go 1.23.2）
 **MCP 框架：** `github.com/mark3labs/mcp-go v0.32.0`
 **协议：** MCP stdio 传输
 
