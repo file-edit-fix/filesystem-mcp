@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 项目上下文
+
+本仓库是 `file_edit_fix` Go Workspace 的子模块（`go.work` 挂在 `D:\Work\Projects\file_edit_fix\`），与 `claude-tab-fix` 共同解决 Claude Code 在 Windows 上的 Edit 工具 bug。**`modify_file` 工具是本项目的核心功能**——作为 Edit 工具失败（CRLF 哈希检查 #13456/#54876、Tab 显示归一化 #26996）时的后备方案，直接在文件系统层面做查找替换，不经过 Edit 工具链。
+
 ## Commands
 
 ```bash
@@ -23,7 +27,10 @@ go test -race ./...
 # Lint
 go vet ./...
 
-# Run
+# Sync go.work with submodule go.mod (after dependency changes)
+go work sync
+
+# Run (specify allowed directories)
 ./server /path/to/allowed/dir
 # Windows: AUTO expands to all available drives
 ./server AUTO
@@ -38,8 +45,8 @@ A Go MCP (Model Context Protocol) server that provides secure filesystem access.
 ### Package Layout
 
 - **`main.go`** — Entry point. Parses CLI args, supports `AUTO` keyword (Windows: expands to all available drives). Creates filesystem server and serves over stdio.
-- **`filesystemserver/server.go`** — `NewFilesystemServer()` creates and registers all 14 tools + 1 resource (`file://`). Uses `github.com/mark3labs/mcp-go` for MCP server infrastructure.
-- **`filesystemserver/handler.go`** — All tool handler implementations. Contains `FilesystemHandler` struct with `allowedDirs` for access control. Every handler validates paths via `validatePath()` before operating.
+- **`filesystemserver/server.go`** — `NewFilesystemServer()` creates and registers all 14 tools + 1 resource (`file://`). Uses `github.com/mark3labs/mcp-go` for MCP server infrastructure. Exports `Version` variable (build-time injected, defaults to `"dev"`).
+- **`filesystemserver/handler.go`** — All tool handler implementations (~2636 lines). Contains `FilesystemHandler` struct with `allowedDirs` for access control. Every handler validates paths via `validatePath()` before operating.
 
 ### Security Model
 
@@ -78,11 +85,12 @@ Recursive directory traversal with configurable max depth. Returns `FileNode` JS
 
 ### Testing
 
-- **In-package tests** (`handler_test.go`) — direct handler calls, test read/write/validate/search logic
-- **External package tests** (`*_test.go` in `filesystemserver_test` package) — integration tests using in-process MCP client (`client.NewInProcessClient`)
+- **In-package tests** (`handler_test.go`) — direct handler calls using `NewFilesystemHandler` + `resolveAllowedDirs` helper, test read/write/validate/search logic
+- **External package tests** (`*_test.go` in `filesystemserver_test` package) — integration tests using in-process MCP client (`client.NewInProcessClient`). Includes `server_test.go` (schema regression test for `read_multiple_files`)
 - **Helper** (`utils_test.go`) — `startTestClient()` creates an initialized MCP client; `getTool()` retrieves a tool by name from the server
 - Tests use `t.TempDir()` for temp directories and `testify` (`assert`/`require`)
 
-### Docker
+### Deployment
 
-Multi-stage build (`golang:1.23-alpine` → `alpine:latest`). Default CMD passes `/app` as allowed directory.
+- **Docker** — Multi-stage build (`golang:1.23-alpine` → `alpine:latest`). Default CMD passes `/app` as allowed directory.
+- **Smithery** — `smithery.yaml` provides stdio start command configuration for Smithery.ai deployment, with `allowedDirectory` and `additionalDirectories` params.
