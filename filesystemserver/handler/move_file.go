@@ -23,40 +23,34 @@ func (fs *FilesystemHandler) HandleMoveFile(
 	}
 
 	// Handle empty or relative paths for source
-	if source == "." || source == "./" {
-		// Get current working directory
-		cwd, err := os.Getwd()
-		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					mcp.TextContent{
-						Type: "text",
-						Text: fmt.Sprintf("Error resolving current directory: %v", err),
-					},
+	resolvedSource, err := resolvePath(source)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
 				},
-				IsError: true,
-			}, nil
-		}
-		source = cwd
+			},
+			IsError: true,
+		}, nil
 	}
+	source = resolvedSource
 
 	// Handle empty or relative paths for destination
-	if destination == "." || destination == "./" {
-		// Get current working directory
-		cwd, err := os.Getwd()
-		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					mcp.TextContent{
-						Type: "text",
-						Text: fmt.Sprintf("Error resolving current directory: %v", err),
-					},
+	resolvedDest, err := resolvePath(destination)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
 				},
-				IsError: true,
-			}, nil
-		}
-		destination = cwd
+			},
+			IsError: true,
+		}, nil
 	}
+	destination = resolvedDest
 
 	validSource, err := fs.validatePath(source)
 	if err != nil {
