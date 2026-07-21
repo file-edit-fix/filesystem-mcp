@@ -4,3 +4,12 @@
 # OS files
 Thumbs.db
 .DS_Store
+
+.aider*
+.opencode*
+OpenCode.md
+dist/
+.claude/
+
+# go build artifact
+mcp-filesystem-server
