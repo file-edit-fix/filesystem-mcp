@@ -131,28 +131,32 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		}
 
 		if allOccurrences {
-			modifiedContent = re.ReplaceAllString(originalContent, replace)
+			modifiedContent = re.ReplaceAllString(originalContent, interpretEscapeSequences(replace))
 			replacementCount = len(re.FindAllString(originalContent, -1))
 		} else {
 			matched := re.FindStringIndex(originalContent)
 			if matched != nil {
 				replacementCount = 1
-				modifiedContent = originalContent[:matched[0]] + replace + originalContent[matched[1]:]
+				modifiedContent = originalContent[:matched[0]] + interpretEscapeSequences(replace) + originalContent[matched[1]:]
 			} else {
 				modifiedContent = originalContent
 				replacementCount = 0
 			}
 		}
 	} else {
+		// Normalize CRLF to LF for reliable matching
+		normalizedContent := strings.ReplaceAll(originalContent, "\r\n", "\n")
+		normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
+
 		if allOccurrences {
-			replacementCount = strings.Count(originalContent, find)
-			modifiedContent = strings.ReplaceAll(originalContent, find, replace)
+			replacementCount = strings.Count(normalizedContent, normalizedFind)
+			modifiedContent = strings.ReplaceAll(normalizedContent, normalizedFind, replace)
 		} else {
-			if index := strings.Index(originalContent, find); index != -1 {
+			if index := strings.Index(normalizedContent, normalizedFind); index != -1 {
 				replacementCount = 1
-				modifiedContent = originalContent[:index] + replace + originalContent[index+len(find):]
+				modifiedContent = normalizedContent[:index] + replace + normalizedContent[index+len(normalizedFind):]
 			} else {
-				modifiedContent = originalContent
+				modifiedContent = normalizedContent
 				replacementCount = 0
 			}
 		}
@@ -205,4 +209,17 @@ func (fs *FilesystemHandler) HandleModifyFile(
 			},
 		},
 	}, nil
+}
+
+// interpretEscapeSequences interprets common escape sequences in the replace string
+// for regex mode: \n → newline, \r → carriage return, \t → tab, \\ → backslash
+// This is needed because Go's regexp.ReplaceAllString treats \t and \n as literal characters.
+func interpretEscapeSequences(s string) string {
+	r := strings.NewReplacer(
+		"\\n", "\n",
+		"\\r", "\r",
+		"\\t", "\t",
+		"\\\\", "\\",
+	)
+	return r.Replace(s)
 }
