@@ -134,9 +134,12 @@ func (fs *FilesystemHandler) HandleSearchFiles(
 
 func searchFiles(rootPath, pattern string, fs *FilesystemHandler) ([]string, error) {
 	var results []string
-	globPattern := glob.MustCompile(pattern)
+	globPattern, err := glob.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+	}
 
-	err := filepath.Walk(
+	err = filepath.Walk(
 		rootPath,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {

@@ -316,18 +316,3 @@ func searchWithinFiles(
 	return results, nil
 }
 
-// Helper function since Go < 1.21 doesn't have min/max functions
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// Helper function since Go < 1.21 doesn't have min/max functions
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
