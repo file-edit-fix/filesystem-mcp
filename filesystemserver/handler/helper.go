@@ -11,6 +11,18 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 )
 
+// resolvePath resolves "." and "./" to the current working directory
+func resolvePath(path string) (string, error) {
+	if path == "." || path == "./" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("error resolving current directory: %w", err)
+		}
+		return cwd, nil
+	}
+	return path, nil
+}
+
 // isPathInAllowedDirs checks if a path is within any of the allowed directories
 func (fs *FilesystemHandler) isPathInAllowedDirs(path string) bool {
 	// Ensure path is absolute and clean
@@ -154,6 +166,5 @@ func isTextFile(mimeType string) bool {
 
 // isImageFile determines if a file is an image based on MIME type
 func isImageFile(mimeType string) bool {
-	return strings.HasPrefix(mimeType, "image/") ||
-		(mimeType == "application/xml" && strings.HasSuffix(strings.ToLower(mimeType), ".svg"))
+	return strings.HasPrefix(mimeType, "image/")
 }

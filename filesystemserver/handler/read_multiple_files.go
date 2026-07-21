@@ -48,18 +48,15 @@ func (fs *FilesystemHandler) HandleReadMultipleFiles(
 	var results []mcp.Content
 	for _, path := range pathsSlice {
 		// Handle empty or relative paths like "." or "./" by converting to absolute path
-		if path == "." || path == "./" {
-			// Get current working directory
-			cwd, err := os.Getwd()
-			if err != nil {
-				results = append(results, mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("Error resolving current directory for path '%s': %v", path, err),
-				})
-				continue
-			}
-			path = cwd
+		resolvedPath, err := resolvePath(path)
+		if err != nil {
+			results = append(results, mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Error resolving current directory for path '%s': %v", path, err),
+			})
+			continue
 		}
+		path = resolvedPath
 
 		validPath, err := fs.validatePath(path)
 		if err != nil {

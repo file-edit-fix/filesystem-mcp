@@ -43,22 +43,19 @@ func (fs *FilesystemHandler) HandleModifyFile(
 	}
 
 	// Handle empty or relative paths like "." or "./" by converting to absolute path
-	if path == "." || path == "./" {
-		// Get current working directory
-		cwd, err := os.Getwd()
-		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					mcp.TextContent{
-						Type: "text",
-						Text: fmt.Sprintf("Error resolving current directory: %v", err),
-					},
+	resolvedPath, err := resolvePath(path)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %v", err),
 				},
-				IsError: true,
-			}, nil
-		}
-		path = cwd
+			},
+			IsError: true,
+		}, nil
 	}
+	path = resolvedPath
 
 	// Validate path is within allowed directories
 	validPath, err := fs.validatePath(path)

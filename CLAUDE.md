@@ -32,7 +32,9 @@ go vet ./...
 
 ## 项目总览
 
-**模块路径：** `github.com/bigmanBass666/filesystem-mcp`（Go 1.23.2）\r\n**MCP 框架：** `github.com/mark3labs/mcp-go v0.32.0`\r\n**协议：** MCP stdio 传输
+**模块路径：** `github.com/bigmanBass666/filesystem-mcp`（Go 1.23.2）
+**MCP 框架：** `github.com/mark3labs/mcp-go v0.32.0`
+**协议：** MCP stdio 传输
 
 该项目是一个 Go 实现的 MCP (Model Context Protocol) 文件系统访问服务器，提供 14 个工具和 1 个 `file://` 资源处理器。
 
@@ -97,4 +99,11 @@ go vet ./...
 
 ## 测试
 
-- **包内测试**（`handler/*_test.go`）— 直接调用处理器方法，测试读写/验证/搜索逻辑。\r\n- **外部包测试**（`filesystemserver/*_test.go` 在 `filesystemserver_test` 包中）— 集成测试，通过 `client.NewInProcessClient` 创建进程内 MCP 客户端。\r\n- **辅助函数**（`utils_test.go`）— `startTestClient()` 创建并初始化 MCP 客户端；`getTool()` 按名称从服务器获取工具定义。\r\n- 测试使用 `t.TempDir()` 创建临时目录，`testify`（`assert`/`require`）进行断言。\r\n\r\n## Docker\r\n\r\n多阶段构建（`golang:1.23-alpine` → `alpine:latest`）。默认 CMD 传入 `/app` 作为允许目录。构建时通过 `-ldflags="-s -w"` 去除调试符号。
+- **包内测试**（`handler/*_test.go`）— 直接调用处理器方法，测试读写/验证/搜索逻辑。
+- **外部包测试**（`filesystemserver/*_test.go` 在 `filesystemserver_test` 包中）— 集成测试，通过 `client.NewInProcessClient` 创建进程内 MCP 客户端。
+- **辅助函数**（`utils_test.go`）— `startTestClient()` 创建并初始化 MCP 客户端；`getTool()` 按名称从服务器获取工具定义。
+- 测试使用 `t.TempDir()` 创建临时目录，`testify`（`assert`/`require`）进行断言。
+
+## Docker
+
+多阶段构建（`golang:1.23-alpine` → `alpine:latest`）。默认 CMD 传入 `/app` 作为允许目录。构建时通过 `-ldflags="-s -w"` 去除调试符号。
