@@ -112,7 +112,7 @@ go mod tidy
 
 ### 测试
 
-- **包内测试**（`handler/*_test.go`）— 每个处理器一个测试文件，使用 `NewFilesystemHandler` + `resolveAllowedDirs` 辅助函数。`modify_file_test.go` 覆盖 8 种场景：基本替换、单次替换、正则替换、文件不存在、无效正则、目录拒绝、越界拒绝、无匹配。
+- **包内测试**（`handler/*_test.go`）— 大多数处理器有对应的测试文件（write_file、move_file 暂缺），使用 `NewFilesystemHandler` + `resolveAllowedDirs` 辅助函数。`modify_file_test.go` 覆盖 8 种场景：基本替换、单次替换、正则替换、文件不存在、无效正则、目录拒绝、越界拒绝、无匹配。
 - **外部包测试**（`filesystemserver/*_test.go`，在 `filesystemserver_test` 包中）— 集成测试，使用进程内 MCP 客户端（`client.NewInProcessClient`）。包括 `server_test.go`（`read_multiple_files` 的 schema 回归测试）。
 - **辅助函数**（`utils_test.go`）— `startTestClient()` 创建并初始化 MCP 客户端；`getTool()` 按名称从服务器获取工具定义。
 - 测试使用 `t.TempDir()` 创建临时目录，`testify`（`assert`/`require`）进行断言。
