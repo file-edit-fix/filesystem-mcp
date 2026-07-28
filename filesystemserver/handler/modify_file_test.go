@@ -359,3 +359,66 @@ func TestModifyFile_RegexReplaceBackslashLiteral(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "path: D:\\Users\\newuser", string(content))
 }
+func TestModifyFile_RegexReplaceWithEscapedNewline(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "item1, item2, item3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Use \n (backslash+n, 0x5c 0x6e) in replace — this is what JSON "\n" becomes
+	// interpretEscapeSequences should convert \n to actual newline (0x0a)
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            ", ",
+		"replace":         "\\n",
+		"regex":           true,
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "item1\nitem2\nitem3", string(content),
+		"backslash+n in replace should be interpreted as actual newline")
+}
+
+func TestModifyFile_ExactReplaceWithEscapedNewline(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "item1, item2, item3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Non-regex (exact match) path: \n (backslash+n) in replace should be
+	// interpreted as actual newline via interpretEscapeSequences
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            ", ",
+		"replace":         "\\n",
+		"regex":           false,
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "item1\nitem2\nitem3", string(content),
+		"non-regex: backslash+n in replace should be interpreted as actual newline")
+}
