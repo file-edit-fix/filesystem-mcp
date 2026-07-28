@@ -147,14 +147,15 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		// Normalize CRLF to LF for reliable matching
 		normalizedContent := strings.ReplaceAll(originalContent, "\r\n", "\n")
 		normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
+		normalizedReplace := interpretEscapeSequences(replace)
 
 		if allOccurrences {
 			replacementCount = strings.Count(normalizedContent, normalizedFind)
-			modifiedContent = strings.ReplaceAll(normalizedContent, normalizedFind, replace)
+			modifiedContent = strings.ReplaceAll(normalizedContent, normalizedFind, normalizedReplace)
 		} else {
 			if index := strings.Index(normalizedContent, normalizedFind); index != -1 {
 				replacementCount = 1
-				modifiedContent = normalizedContent[:index] + replace + normalizedContent[index+len(normalizedFind):]
+				modifiedContent = normalizedContent[:index] + normalizedReplace + normalizedContent[index+len(normalizedFind):]
 			} else {
 				modifiedContent = normalizedContent
 				replacementCount = 0
@@ -211,9 +212,10 @@ func (fs *FilesystemHandler) HandleModifyFile(
 	}, nil
 }
 
-// interpretEscapeSequences interprets common escape sequences in the replace string
-// for regex mode: \n → newline, \r → carriage return, \t → tab, \\ → backslash
-// This is needed because Go's regexp.ReplaceAllString treats \t and \n as literal characters.
+// interpretEscapeSequences interprets common escape sequences in the replace string:
+// \n → newline, \r → carriage return, \t → tab, \\ → backslash
+// This is needed because Go's regexp.ReplaceAllString and strings.ReplaceAll
+// treat \t and \n as literal characters.
 func interpretEscapeSequences(s string) string {
 	r := strings.NewReplacer(
 		"\\n", "\n",
