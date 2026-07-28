@@ -516,3 +516,93 @@ func TestModifyFile_ExactReplaceWithEscapedBackslash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "path: D:\\Users\\newuser", string(content))
 }
+// TestModifyFile_CRLF_MatchNewlineInFind tests that backslash-n in find matches
+// backslash-r-backslash-n in the file when using exact match mode (CRLF normalization).
+func TestModifyFile_CRLF_MatchNewlineInFind(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	// Create a file with CRLF line endings
+	originalContent := "foo\r\nbar\r\nbaz"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Find: "\n" (single newline character 0x0a) — should match CRLF after normalization
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "\n",
+		"replace":         "X",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "fooXbarXbaz", string(content),
+		"backslash-n in find should match CRLF in file after normalization")
+}
+
+func TestModifyFile_CRLF_MatchNewlineInFind_MultiLine(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "line1\r\nline2\r\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line1\nline2",
+		"replace":         "REPLACED",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "REPLACED\nline3", string(content),
+		"multi-line find with backslash-n should match across CRLF boundary")
+}
+
+func TestModifyFile_CRLF_MatchFindWithCRLF(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "line1\r\nline2\r\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line1\r\nline2",
+		"replace":         "REPLACED",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "REPLACED\nline3", string(content),
+		"find with backslash-r-backslash-n should match CRLF file after normalization")
+}
