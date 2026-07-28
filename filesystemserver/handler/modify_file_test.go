@@ -422,3 +422,97 @@ func TestModifyFile_ExactReplaceWithEscapedNewline(t *testing.T) {
 	assert.Equal(t, "item1\nitem2\nitem3", string(content),
 		"non-regex: backslash+n in replace should be interpreted as actual newline")
 }
+
+func TestModifyFile_ExactReplaceSingleWithEscapedNewline(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "item1, item2, item3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Non-regex, single replacement (all_occurrences=false) with \n in replace
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            ", ",
+		"replace":         "\\n",
+		"regex":           false,
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	// Only first occurrence replaced with newline
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "item1\nitem2, item3", string(content),
+		"non-regex single: first comma replaced with newline, second unchanged")
+}
+
+func TestModifyFile_ExactReplaceWithEscapedTab(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "before match after"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Non-regex path: \t in replace should be interpreted as actual tab
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "match",
+		"replace":         "replaced\twith\ttab",
+		"regex":           false,
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "before replaced\twith\ttab after", string(content))
+}
+
+func TestModifyFile_ExactReplaceWithEscapedBackslash(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "path: C:\\Users\\name"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Non-regex path: \\ in replace should be interpreted as literal backslash
+	// The JSON value is "\\\\" → Go string is "\\" → interpretEscapeSequences converts to "\"
+	// In exact match mode, find uses the file's literal backslash content: "C:\Users\name"
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "C:\\Users\\name",
+		"replace":         "D:\\\\Users\\\\newuser",
+		"regex":           false,
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "path: D:\\Users\\newuser", string(content))
+}
