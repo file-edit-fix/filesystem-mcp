@@ -141,6 +141,14 @@ func (fs *FilesystemHandler) HandleModifyFile(
 			} else {
 				modifiedContent = originalContent
 				replacementCount = 0
+				// Fuzzy fallback: try context-aware matching when exact match fails
+				if replacementCount == 0 {
+					fuzzyContent, fuzzyCount := contextAwareReplace(originalContent, find, replace)
+					if fuzzyCount > 0 {
+						modifiedContent = fuzzyContent
+						replacementCount = fuzzyCount
+					}
+				}
 			}
 		}
 	} else {
@@ -159,6 +167,14 @@ func (fs *FilesystemHandler) HandleModifyFile(
 			} else {
 				modifiedContent = normalizedContent
 				replacementCount = 0
+				// Fuzzy fallback: try context-aware matching on normalized content
+				if replacementCount == 0 {
+					fuzzyContent, fuzzyCount := contextAwareReplace(normalizedContent, normalizedFind, normalizedReplace)
+					if fuzzyCount > 0 {
+						modifiedContent = fuzzyContent
+						replacementCount = fuzzyCount
+					}
+				}
 			}
 		}
 	}
@@ -224,4 +240,131 @@ func interpretEscapeSequences(s string) string {
 		"\\\\", "\\",
 	)
 	return r.Replace(s)
+}
+
+// lineSimilarity returns the ratio of common words between two lines.
+// Leading indentation is normalized before comparison so tab/space differences
+// don't penalize the score.
+func lineSimilarity(a, b string) float64 {
+	// Strip leading indentation (tabs and spaces) for comparison
+	trimmedA := strings.TrimLeft(a, "\t ")
+	trimmedB := strings.TrimLeft(b, "\t ")
+	wa := strings.Fields(trimmedA)
+	wb := strings.Fields(trimmedB)
+	if len(wa) == 0 && len(wb) == 0 {
+		return 1.0
+	}
+	if len(wa) == 0 || len(wb) == 0 {
+		return 0.0
+	}
+
+	ws := make(map[string]bool)
+	for _, w := range wb {
+		ws[strings.ToLower(w)] = true
+	}
+	common := 0
+	for _, w := range wa {
+		if ws[strings.ToLower(w)] {
+			common++
+		}
+	}
+	return float64(common*2) / float64(len(wa)+len(wb))
+}
+
+// fuzzyFindBlock searches for the best matching position of findBlock
+// within fileLines using a sliding window with LCS line similarity.
+// It returns the byte offset and the matched block text, or (-1, "") if no good match.
+func fuzzyFindBlock(fileLines, findLines []string, threshold float64) (int, string) {
+	if len(findLines) == 0 || len(fileLines) < len(findLines) {
+		return -1, ""
+	}
+
+	bestScore := 0.0
+	bestOffset := -1
+
+	for i := 0; i <= len(fileLines)-len(findLines); i++ {
+		window := fileLines[i : i+len(findLines)]
+		totalSim := 0.0
+		for j, fl := range findLines {
+			totalSim += lineSimilarity(fl, window[j])
+		}
+		avgSim := totalSim / float64(len(findLines))
+
+		if avgSim >= threshold && avgSim > bestScore {
+			bestScore = avgSim
+			bestOffset = i
+		}
+	}
+
+	if bestOffset == -1 {
+		return -1, ""
+	}
+	matched := strings.Join(fileLines[bestOffset:bestOffset+len(findLines)], "\n")
+	return bestOffset, matched
+}
+
+// lineOffset converts a line index and column within that line to a byte offset in the full text.
+func lineOffset(text string, lineIndex int) int {
+	lines := strings.Split(text, "\n")
+	offset := 0
+	for i := 0; i < lineIndex && i < len(lines); i++ {
+		offset += len(lines[i]) + 1 // +1 for \n
+	}
+	return offset
+}
+
+// contextAwareReplace attempts a fuzzy match fallback when exact and regex matching fail.
+// It splits find and file content into lines, extracts surrounding context from the find block,
+// and searches for a best-match position using line-level similarity.
+func contextAwareReplace(content, find, replace string) (string, int) {
+	findLines := strings.Split(find, "\n")
+	if len(findLines) == 0 {
+		return content, 0
+	}
+
+	// Extract context lines: first 2 and last 2 non-empty lines of the find block
+	var contextLines []string
+	for _, l := range findLines {
+		if strings.TrimSpace(l) != "" {
+			contextLines = append(contextLines, l)
+		}
+	}
+	if len(contextLines) > 4 {
+		contextLines = append(contextLines[:2], contextLines[len(contextLines)-2:]...)
+	}
+
+	fileLines := strings.Split(content, "\n")
+
+	// Try with full find block first (threshold 0.80)
+	if offset, _ := fuzzyFindBlock(fileLines, findLines, 0.80); offset != -1 {
+		start := lineOffset(content, offset)
+		end := lineOffset(content, offset+len(findLines))
+		newContent := content[:start] + replace + content[end:]
+		return newContent, 1
+	}
+
+	// Try with context lines only (lower threshold 0.70)
+	if len(contextLines) > 0 {
+		if offset, _ := fuzzyFindBlock(fileLines, contextLines, 0.70); offset != -1 {
+			// Replace within the matched region — expand to include lines between context anchors
+			startLine := offset
+			endLine := offset + len(contextLines)
+
+			// Expand to cover full find block height if context is a subset
+			if len(contextLines) < len(findLines) {
+				expansion := (len(findLines) - len(contextLines)) / 2
+				startLine = max(0, offset-expansion)
+				endLine = min(len(fileLines), offset+len(contextLines)+expansion)
+			}
+
+			start := lineOffset(content, startLine)
+			end := lineOffset(content, endLine)
+			
+			newContent := content[:start] + replace + content[end:]
+			 // matched text logged in verbose mode if needed
+			return newContent, 1
+		}
+	}
+
+	return content, 0
 }

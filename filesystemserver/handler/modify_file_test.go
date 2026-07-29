@@ -359,6 +359,97 @@ func TestModifyFile_RegexReplaceBackslashLiteral(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "path: D:\\Users\\newuser", string(content))
 }
+
+func TestModifyFile_FuzzyMatch_IndentDifference(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "package main\n\n\tfunc main() {\n\t\tx := 1\n\t\treturn x\n\t}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find uses spaces instead of tabs — exact match fails,
+	// fuzzy should match by content similarity after normalizing indent
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "x := 1\nreturn x",
+		"replace":         "y := 2\nreturn y",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "y := 2")
+	assert.Contains(t, string(content), "return y")
+	assert.NotContains(t, string(content), "x := 1")
+}
+
+func TestModifyFile_FuzzyMatch_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world\nfoo bar\nbaz qux\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find with completely unrelated content — should not modify
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "nothing matches here at all",
+		"replace":         "replacement",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content))
+}
+
+func TestModifyFile_FuzzyMatch_MultiLineBlock(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find uses spaces, file uses tabs — fuzzy match should find the function body
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "fmt.Println(\"hello\")",
+		"replace":         "fmt.Println(\"world\")",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "world")
+	assert.NotContains(t, string(content), "hello")
+}
 func TestModifyFile_RegexReplaceWithEscapedNewline(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.txt")
