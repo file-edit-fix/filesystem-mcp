@@ -161,7 +161,7 @@ func NewFilesystemServer(allowedDirs []string) (*server.MCPServer, error) {
 
 	s.AddTool(mcp.NewTool(
 		"modify_file",
-		mcp.WithDescription("Update file by finding and replacing text. Provides a simple pattern matching interface without needing exact character positions."),
+		mcp.WithDescription("Update file by finding and replacing text. Supports batch operations via regex + all_occurrences — use this for replacing multiple lines matching the same pattern (e.g., removing a field from all struct literals). Provides a simple pattern matching interface without needing exact character positions."),
 		mcp.WithString("path",
 			mcp.Description("Path to the file to modify"),
 			mcp.Required(),
