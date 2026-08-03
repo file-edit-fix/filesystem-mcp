@@ -23,11 +23,6 @@ func (fs *FilesystemHandler) HandleModifyFile(
 	ctx context.Context,
 	request mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	path, err := request.RequireString("path")
-	if err != nil {
-		return nil, err
-	}
-
 	find, err := request.RequireString("find")
 	if err != nil {
 		return nil, err
@@ -53,7 +48,128 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		dryRun = val
 	}
 
+	argsMap, ok := request.Params.Arguments.(map[string]any)
+	if !ok {
+		argsMap = map[string]any{}
+	}
+
+	paths, hasPaths := argsMap["paths"]
+	if hasPaths {
+		pathSlice, ok := paths.([]string)
+		if !ok || len(pathSlice) == 0 {
+			return errorResult("Error: paths array must not be empty"), nil
+		}
+		return fs.batchModifyResult(ctx, pathSlice, find, replace, useRegex, allOccurrences, dryRun)
+	}
+
+	path, err := request.RequireString("path")
+	if err != nil {
+		return nil, err
+	}
+
 	return fs.modifyFileSingle(ctx, path, find, replace, useRegex, allOccurrences, dryRun)
+}
+
+// batchModifyResult processes the same find/replace across multiple files,
+// building an aggregate summary of all results.
+func (fs *FilesystemHandler) batchModifyResult(
+	ctx context.Context,
+	paths []string,
+	find, replace string,
+	useRegex, allOccurrences, dryRun bool,
+) (*mcp.CallToolResult, error) {
+	totalMatches := 0
+	modifiedCount := 0
+	errorCount := 0
+
+	var sb strings.Builder
+
+	if dryRun {
+		sb.WriteString(fmt.Sprintf("Batch dry run: %d file(s)\n\n", len(paths)))
+	} else {
+		sb.WriteString(fmt.Sprintf("Batch modify completed: 0/%d files modified\n\n", len(paths)))
+	}
+
+	for _, p := range paths {
+		result, err := fs.modifyFileSingle(ctx, p, find, replace, useRegex, allOccurrences, dryRun)
+		if err != nil {
+			// Hardware/system error (shouldn't happen, modifyFileSingle returns nil error)
+			errorCount++
+			sb.WriteString(fmt.Sprintf("  %s: Error — %v\n", p, err))
+			continue
+		}
+
+		if result.IsError {
+			// File-level error (file not found, access denied, invalid regex, etc.)
+			errorCount++
+			text := result.Content[0].(mcp.TextContent).Text
+			sb.WriteString(fmt.Sprintf("  %s: Error — %s\n", p, text))
+			continue
+		}
+
+		// Parse the success/no-match text to extract replacement count
+		text := result.Content[0].(mcp.TextContent).Text
+		count := parseReplacementCount(text)
+		if count > 0 {
+			totalMatches += count
+			modifiedCount++
+			if dryRun {
+				// For dry run, show what modifyFileSingle already formatted
+				// Strip "Dry run:" header prefix and re-add indentation
+				lines := strings.Split(text, "\n")
+				for _, line := range lines {
+					sb.WriteString(fmt.Sprintf("  %s\n", line))
+				}
+			} else {
+				sb.WriteString(fmt.Sprintf("  %s: %d replacement(s)\n", p, count))
+			}
+		} else {
+			// No matches
+			if dryRun {
+				sb.WriteString(fmt.Sprintf("  %s: No matches\n", p))
+			} else {
+				sb.WriteString(fmt.Sprintf("  %s: No matches\n", p))
+			}
+		}
+	}
+
+	// Update the header with final counts
+	header := sb.String()
+	if dryRun {
+		header = strings.Replace(header,
+			fmt.Sprintf("Batch dry run: %d file(s)", len(paths)),
+			fmt.Sprintf("Batch dry run: %d file(s), %d match(es) found", len(paths), totalMatches),
+			1)
+	} else {
+		header = strings.Replace(header,
+			fmt.Sprintf("Batch modify completed: 0/%d files modified", len(paths)),
+			fmt.Sprintf("Batch modify completed: %d/%d files modified", modifiedCount, len(paths)),
+			1)
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: header,
+			},
+		},
+	}, nil
+}
+
+// parseReplacementCount extracts the number of replacements from a
+// modifyFileSingle success/no-match result text.
+func parseReplacementCount(text string) int {
+	// Match "Made N replacement(s)" or "Made N replacement(s) in ..."
+	re := regexp.MustCompile(`Made (\d+) replacement`)
+	matches := re.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		var count int
+		fmt.Sscanf(matches[1], "%d", &count)
+		return count
+	}
+	// "No matches found. File unchanged." or "Dry run: N match(es) found"
+	return 0
 }
 
 // modifyFileSingle processes a single file modification request.
