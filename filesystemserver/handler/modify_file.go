@@ -146,6 +146,7 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	// Exact match failed — try line-level trim fallback
 	findLines := strings.Split(normalizedFind, "\n")
 	contentLines := strings.Split(content, "\n")
+	contentOffsets := lineOffsets(content)
 
 	if len(findLines) > len(contentLines) {
 		return nil, nil
@@ -154,8 +155,8 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	for i := 0; i <= len(contentLines)-len(findLines); i++ {
 		window := contentLines[i : i+len(findLines)]
 		if linesTrimMatch(findLines, window) {
-			startByte := lineOffset(content, i)
-			endByte := lineOffset(content, i+len(findLines))
+			startByte := contentOffsets[i]
+			endByte := contentOffsets[i+len(findLines)]
 			if allOccurrences {
 				var allMatches []matchResult
 				searchStart := 0
@@ -164,8 +165,8 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 					for j := searchStart; j <= len(contentLines)-len(findLines); j++ {
 						w := contentLines[j : j+len(findLines)]
 						if linesTrimMatch(findLines, w) {
-							sb := lineOffset(content, j)
-							eb := lineOffset(content, j+len(findLines))
+							sb := contentOffsets[j]
+							eb := contentOffsets[j+len(findLines)]
 							allMatches = append(allMatches, matchResult{
 								startByte:   sb,
 								endByte:     eb,
@@ -261,14 +262,16 @@ func applyReplacements(content string, matches []matchResult) string {
 	return result.String()
 }
 
-// lineOffset converts a line index to a byte offset in the full text.
-func lineOffset(text string, lineIndex int) int {
+// lineOffsets returns a slice where offsets[i] is the byte offset of line i in text.
+func lineOffsets(text string) []int {
 	lines := strings.Split(text, "\n")
+	offsets := make([]int, len(lines))
 	offset := 0
-	for i := 0; i < lineIndex && i < len(lines); i++ {
-		offset += len(lines[i]) + 1
+	for i, line := range lines {
+		offsets[i] = offset
+		offset += len(line) + 1
 	}
-	return offset
+	return offsets
 }
 
 // atomicWriteFile writes content to a temp file with the original file's
