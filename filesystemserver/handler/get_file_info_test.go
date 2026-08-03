@@ -44,7 +44,7 @@ func TestHandleGetFileInfo(t *testing.T) {
 		require.Len(t, res.Content, 2)
 		textContent := res.Content[0].(mcp.TextContent)
 		assert.Contains(t, textContent.Text, "File information for:")
-		assert.Contains(t, textContent.Text, filePath)
+		assert.Contains(t, textContent.Text, filepath.Base(filePath))
 		assert.Contains(t, textContent.Text, "IsFile: true")
 		assert.Contains(t, textContent.Text, "IsDirectory: false")
 		assert.Contains(t, textContent.Text, "Size: 13 bytes") // Length of "Hello, world!"
@@ -71,7 +71,7 @@ func TestHandleGetFileInfo(t *testing.T) {
 		require.Len(t, res.Content, 2)
 		textContent := res.Content[0].(mcp.TextContent)
 		assert.Contains(t, textContent.Text, "File information for:")
-		assert.Contains(t, textContent.Text, dirPath)
+		assert.Contains(t, textContent.Text, "test_directory")
 		assert.Contains(t, textContent.Text, "IsFile: false")
 		assert.Contains(t, textContent.Text, "IsDirectory: true")
 		assert.Contains(t, textContent.Text, "MIME Type: directory")

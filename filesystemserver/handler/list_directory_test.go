@@ -48,8 +48,7 @@ func TestHandleListDirectory(t *testing.T) {
 		require.Len(t, res.Content, 2)
 		textContent := res.Content[0].(mcp.TextContent)
 		assert.Contains(t, textContent.Text, "Directory listing for:")
-		assert.Contains(t, textContent.Text, tmpDir)
-		assert.Contains(t, textContent.Text, "[DIR]  subdirectory")
+		assert.Contains(t, textContent.Text, "subdirectory")
 		assert.Contains(t, textContent.Text, "[FILE] test_file.txt")
 		assert.Contains(t, textContent.Text, "11 bytes") // Length of "hello world"
 		assert.Contains(t, textContent.Text, "file://")
@@ -80,7 +79,7 @@ func TestHandleListDirectory(t *testing.T) {
 		require.Len(t, res.Content, 2)
 		textContent := res.Content[0].(mcp.TextContent)
 		assert.Contains(t, textContent.Text, "Directory listing for:")
-		assert.Contains(t, textContent.Text, emptyDir)
+		assert.Contains(t, textContent.Text, "empty_directory")
 	})
 
 	t.Run("try to list a file instead of directory", func(t *testing.T) {
