@@ -697,3 +697,162 @@ func TestModifyFile_CRLF_MatchFindWithCRLF(t *testing.T) {
 	assert.Equal(t, "REPLACED\nline3", string(content),
 		"find with backslash-r-backslash-n should match CRLF file after normalization")
 }
+
+func TestModifyFile_DryRun_NoModification(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world hello"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "hello",
+		"replace":         "hi",
+		"all_occurrences": true,
+		"dry_run":         true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	// File should be unchanged
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content))
+
+	// Response should mention dry run
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "Dry run")
+	assert.Contains(t, text, "match(es) found")
+}
+
+func TestModifyFile_DryRun_LineTrimFallback(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "package main\n\n\tfunc main() {\n\t\tx := 1\n\t\treturn x\n\t}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find uses spaces instead of tabs — should match via line-level trim fallback
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "x := 1\nreturn x",
+		"replace":         "y := 2\nreturn y",
+		"all_occurrences": false,
+		"dry_run":         true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	// File should be unchanged
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content))
+
+	// Response should show the match
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "x := 1")
+	assert.Contains(t, text, "return x")
+}
+
+func TestModifyFile_MixedMatch_ExactThenTrim(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "\tfunc foo() {\n\t\tx := 1\n\t}\n\tfunc bar() {\n\t\tx := 2\n\t}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// First occurrence uses exact match (same indent), second uses trim fallback
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "x := 1\n}",
+		"replace":         "y := 99\n}",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "y := 99")
+	assert.NotContains(t, string(content), "x := 1")
+	// Second occurrence unchanged
+	assert.Contains(t, string(content), "x := 2")
+}
+
+func TestModifyFile_DryRun_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":     filePath,
+		"find":     "zzz",
+		"replace":  "aaa",
+		"dry_run":  true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "No matches found")
+}
+
+func TestModifyFile_TrimFallback_FindLongerThanFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// Multi-line find against a single-line file — should not panic
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line1\nline2\nline3",
+		"replace":         "replaced",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content), "file should be unchanged when find is longer than file")
+}

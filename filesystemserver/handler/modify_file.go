@@ -4,18 +4,26 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// handleModifyFile handles the modify_file tool request
+// matchResult holds the outcome of a matching attempt using byte offsets.
+type matchResult struct {
+	startByte   int    // byte offset where match starts in content
+	endByte     int    // byte offset where match ends (exclusive)
+	matchLines  int    // number of lines matched
+	replacement string // the replacement text to inject
+}
+
+// HandleModifyFile handles the modify_file tool request
 func (fs *FilesystemHandler) HandleModifyFile(
 	ctx context.Context,
 	request mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	// Extract arguments
 	path, err := request.RequireString("path")
 	if err != nil {
 		return nil, err
@@ -31,182 +39,313 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		return nil, err
 	}
 
-	// Extract optional arguments with defaults
-	allOccurrences := true // Default value
+	allOccurrences := true
 	if val, err := request.RequireBool("all_occurrences"); err == nil {
 		allOccurrences = val
 	}
 
-	useRegex := false // Default value
+	useRegex := false
 	if val, err := request.RequireBool("regex"); err == nil {
 		useRegex = val
 	}
 
-	// Handle empty or relative paths like "." or "./" by converting to absolute path
+	dryRun := false
+	if val, err := request.RequireBool("dry_run"); err == nil {
+		dryRun = val
+	}
+
 	resolvedPath, err := resolvePath(path)
 	if err != nil {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("Error: %v", err),
-				},
-			},
-			IsError: true,
-		}, nil
+		return errorResult(fmt.Sprintf("Error: %v", err)), nil
 	}
 	path = resolvedPath
 
-	// Validate path is within allowed directories
 	validPath, err := fs.validatePath(path)
 	if err != nil {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("Error: %v", err),
-				},
-			},
-			IsError: true,
-		}, nil
+		return errorResult(fmt.Sprintf("Error: %v", err)), nil
 	}
 
-	// Check if it's a directory
 	if info, err := os.Stat(validPath); err == nil && info.IsDir() {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: "Error: Cannot modify a directory",
-				},
-			},
-			IsError: true,
-		}, nil
+		return errorResult("Error: Cannot modify a directory"), nil
 	}
 
-	// Check if file exists
 	if _, err := os.Stat(validPath); os.IsNotExist(err) {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("Error: File not found: %s", path),
-				},
-			},
-			IsError: true,
-		}, nil
+		return errorResult(fmt.Sprintf("Error: File not found: %s", path)), nil
 	}
 
-	// Read file content
 	content, err := os.ReadFile(validPath)
 	if err != nil {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: fmt.Sprintf("Error reading file: %v", err),
-				},
-			},
-			IsError: true,
-		}, nil
+		return errorResult(fmt.Sprintf("Error reading file: %v", err)), nil
 	}
 
-	originalContent := string(content)
-	modifiedContent := ""
-	replacementCount := 0
+	// Normalize line endings once — all matching and replacement operates on this
+	contentStr := strings.ReplaceAll(string(content), "\r\n", "\n")
 
-	// Perform the replacement
+	var replacements []matchResult
+
 	if useRegex {
-		re, err := regexp.Compile(find)
-		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					mcp.TextContent{
-						Type: "text",
-						Text: fmt.Sprintf("Error: Invalid regular expression: %v", err),
-					},
-				},
-				IsError: true,
-			}, nil
-		}
-
-		if allOccurrences {
-			modifiedContent = re.ReplaceAllString(originalContent, interpretEscapeSequences(replace))
-			replacementCount = len(re.FindAllString(originalContent, -1))
-		} else {
-			matched := re.FindStringIndex(originalContent)
-			if matched != nil {
-				replacementCount = 1
-				modifiedContent = originalContent[:matched[0]] + interpretEscapeSequences(replace) + originalContent[matched[1]:]
-			} else {
-				modifiedContent = originalContent
-				replacementCount = 0
-				// Fuzzy fallback: try context-aware matching when exact match fails
-				if replacementCount == 0 {
-					fuzzyContent, fuzzyCount := contextAwareReplace(originalContent, find, replace)
-					if fuzzyCount > 0 {
-						modifiedContent = fuzzyContent
-						replacementCount = fuzzyCount
-					}
-				}
-			}
-		}
+		replacements, err = regexReplace(contentStr, find, replace, allOccurrences)
 	} else {
-		// Normalize CRLF to LF for reliable matching
-		normalizedContent := strings.ReplaceAll(originalContent, "\r\n", "\n")
-		normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
-		normalizedReplace := interpretEscapeSequences(replace)
-
-		if allOccurrences {
-			replacementCount = strings.Count(normalizedContent, normalizedFind)
-			modifiedContent = strings.ReplaceAll(normalizedContent, normalizedFind, normalizedReplace)
-		} else {
-			if index := strings.Index(normalizedContent, normalizedFind); index != -1 {
-				replacementCount = 1
-				modifiedContent = normalizedContent[:index] + normalizedReplace + normalizedContent[index+len(normalizedFind):]
-			} else {
-				modifiedContent = normalizedContent
-				replacementCount = 0
-				// Fuzzy fallback: try context-aware matching on normalized content
-				if replacementCount == 0 {
-					fuzzyContent, fuzzyCount := contextAwareReplace(normalizedContent, normalizedFind, normalizedReplace)
-					if fuzzyCount > 0 {
-						modifiedContent = fuzzyContent
-						replacementCount = fuzzyCount
-					}
-				}
-			}
-		}
+		replacements, err = mixedReplace(contentStr, find, replace, allOccurrences)
 	}
 
-	// Write modified content back to file
-	if err := os.WriteFile(validPath, []byte(modifiedContent), 0644); err != nil {
+	if err != nil {
+		return errorResult(fmt.Sprintf("Error: Invalid regular expression: %v", err)), nil
+	}
+
+	if len(replacements) == 0 {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				mcp.TextContent{
 					Type: "text",
-					Text: fmt.Sprintf("Error writing to file: %v", err),
+					Text: "No matches found. File unchanged.",
 				},
 			},
-			IsError: true,
 		}, nil
 	}
 
-	// Create response
+	if dryRun {
+		return dryRunResult(contentStr, replacements), nil
+	}
+
+	modifiedContent := applyReplacements(contentStr, replacements)
+	if err := atomicWriteFile(validPath, modifiedContent); err != nil {
+		return errorResult(fmt.Sprintf("Error writing to file: %v", err)), nil
+	}
+
+	return successResult(path, validPath, replacements), nil
+}
+
+// mixedReplace performs replacement with mixed matching strategy:
+// exact match first, then line-level trim fallback.
+func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
+	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
+	normalizedReplace := interpretEscapeSequences(replace)
+
+	// Try exact match first
+	exactCount := strings.Count(content, normalizedFind)
+	if exactCount > 0 {
+		matches := make([]matchResult, exactCount)
+		offset := 0
+		for i := 0; i < exactCount; i++ {
+			idx := strings.Index(content[offset:], normalizedFind)
+			startByte := offset + idx
+			endByte := startByte + len(normalizedFind)
+			matches[i] = matchResult{
+				startByte:   startByte,
+				endByte:     endByte,
+				matchLines:  1 + strings.Count(normalizedFind, "\n"),
+				replacement: normalizedReplace,
+			}
+			offset = endByte
+		}
+		if allOccurrences {
+			return matches, nil
+		}
+		return matches[:1], nil
+	}
+
+	// Exact match failed — try line-level trim fallback
+	findLines := strings.Split(normalizedFind, "\n")
+	contentLines := strings.Split(content, "\n")
+
+	if len(findLines) > len(contentLines) {
+		return nil, nil
+	}
+
+	for i := 0; i <= len(contentLines)-len(findLines); i++ {
+		window := contentLines[i : i+len(findLines)]
+		if linesTrimMatch(findLines, window) {
+			startByte := lineOffset(content, i)
+			endByte := lineOffset(content, i+len(findLines))
+			if allOccurrences {
+				var allMatches []matchResult
+				searchStart := 0
+				for {
+					found := false
+					for j := searchStart; j <= len(contentLines)-len(findLines); j++ {
+						w := contentLines[j : j+len(findLines)]
+						if linesTrimMatch(findLines, w) {
+							sb := lineOffset(content, j)
+							eb := lineOffset(content, j+len(findLines))
+							allMatches = append(allMatches, matchResult{
+								startByte:   sb,
+								endByte:     eb,
+								matchLines:  len(findLines),
+								replacement: normalizedReplace,
+							})
+							searchStart = j + len(findLines)
+							found = true
+							break
+						}
+					}
+					if !found {
+						break
+					}
+				}
+				return allMatches, nil
+			}
+
+			return []matchResult{{
+				startByte:   startByte,
+				endByte:     endByte,
+				matchLines:  len(findLines),
+				replacement: normalizedReplace,
+			}}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// linesTrimMatch returns true if every line in findLines matches the
+// corresponding line in contentLines when both are trimmed of leading whitespace.
+func linesTrimMatch(findLines, contentLines []string) bool {
+	if len(findLines) > len(contentLines) {
+		return false
+	}
+	for i, fl := range findLines {
+		if strings.TrimLeft(fl, "\t ") != strings.TrimLeft(contentLines[i], "\t ") {
+			return false
+		}
+	}
+	return true
+}
+
+// regexReplace performs replacement using regex patterns.
+func regexReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
+	re, err := regexp.Compile(find)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regular expression: %v", err)
+	}
+
+	normalizedReplace := interpretEscapeSequences(replace)
+
+	if allOccurrences {
+		locs := re.FindAllStringIndex(content, -1)
+		if len(locs) == 0 {
+			return nil, nil
+		}
+		matches := make([]matchResult, len(locs))
+		for i, l := range locs {
+			matches[i] = matchResult{
+				startByte:   l[0],
+				endByte:     l[1],
+				matchLines:  1 + strings.Count(content[l[0]:l[1]], "\n"),
+				replacement: normalizedReplace,
+			}
+		}
+		return matches, nil
+	}
+
+	loc := re.FindStringIndex(content)
+	if loc == nil {
+		return nil, nil
+	}
+
+	return []matchResult{{
+		startByte:   loc[0],
+		endByte:     loc[1],
+		matchLines:  1 + strings.Count(content[loc[0]:loc[1]], "\n"),
+		replacement: normalizedReplace,
+	}}, nil
+}
+
+// applyReplacements applies matchResults to content using byte offsets.
+func applyReplacements(content string, matches []matchResult) string {
+	var result strings.Builder
+	result.WriteString(content[:matches[0].startByte])
+
+	for i := 0; i < len(matches); i++ {
+		result.WriteString(matches[i].replacement)
+		if i+1 < len(matches) {
+			result.WriteString(content[matches[i].endByte:matches[i+1].startByte])
+		}
+	}
+	result.WriteString(content[matches[len(matches)-1].endByte:])
+
+	return result.String()
+}
+
+// lineOffset converts a line index to a byte offset in the full text.
+func lineOffset(text string, lineIndex int) int {
+	lines := strings.Split(text, "\n")
+	offset := 0
+	for i := 0; i < lineIndex && i < len(lines); i++ {
+		offset += len(lines[i]) + 1
+	}
+	return offset
+}
+
+// atomicWriteFile writes content to a temp file then renames it atomically.
+func atomicWriteFile(path, content string) error {
+	dir := filepath.Dir(path)
+	tmpFile, err := os.CreateTemp(dir, "modify_file_*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %v", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename temp file: %v", err)
+	}
+
+	return nil
+}
+
+// dryRunResult builds a dry_run response listing matched lines.
+func dryRunResult(originalContent string, matches []matchResult) *mcp.CallToolResult {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Dry run: %d match(es) found (no changes applied)\n\n", len(matches)))
+
+	for i, m := range matches {
+		startLine := strings.Count(originalContent[:m.startByte], "\n")
+		sb.WriteString(fmt.Sprintf("Match %d at line %d:\n", i+1, startLine+1))
+		for _, line := range strings.Split(originalContent[m.startByte:m.endByte], "\n") {
+			sb.WriteString(fmt.Sprintf("  %s\n", line))
+		}
+		sb.WriteString("  -> would be replaced with:\n")
+		for _, rl := range strings.Split(m.replacement, "\n") {
+			sb.WriteString(fmt.Sprintf("    %s\n", rl))
+		}
+		sb.WriteString("\n")
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: sb.String(),
+			},
+		},
+	}
+}
+
+// successResult builds a success response.
+func successResult(originalPath, validPath string, matches []matchResult) *mcp.CallToolResult {
 	resourceURI := pathToResourceURI(validPath)
 
-	// Get file info for the response
 	info, err := os.Stat(validPath)
 	if err != nil {
-		// File was written but we couldn't get info
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				mcp.TextContent{
 					Type: "text",
-					Text: fmt.Sprintf("File modified successfully. Made %d replacement(s).", replacementCount),
+					Text: fmt.Sprintf("File modified successfully. Made %d replacement(s).", len(matches)),
 				},
 			},
-		}, nil
+		}
 	}
 
 	return &mcp.CallToolResult{
@@ -214,7 +353,7 @@ func (fs *FilesystemHandler) HandleModifyFile(
 			mcp.TextContent{
 				Type: "text",
 				Text: fmt.Sprintf("File modified successfully. Made %d replacement(s) in %s (file size: %d bytes)",
-					replacementCount, path, info.Size()),
+					len(matches), originalPath, info.Size()),
 			},
 			mcp.EmbeddedResource{
 				Type: "resource",
@@ -225,13 +364,24 @@ func (fs *FilesystemHandler) HandleModifyFile(
 				},
 			},
 		},
-	}, nil
+	}
+}
+
+// errorResult builds an error response.
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: msg,
+			},
+		},
+		IsError: true,
+	}
 }
 
 // interpretEscapeSequences interprets common escape sequences in the replace string:
-// \n → newline, \r → carriage return, \t → tab, \\ → backslash
-// This is needed because Go's regexp.ReplaceAllString and strings.ReplaceAll
-// treat \t and \n as literal characters.
+// \n -> newline, \r -> carriage return, \t -> tab, \\ -> backslash
 func interpretEscapeSequences(s string) string {
 	r := strings.NewReplacer(
 		"\\n", "\n",
@@ -242,129 +392,3 @@ func interpretEscapeSequences(s string) string {
 	return r.Replace(s)
 }
 
-// lineSimilarity returns the ratio of common words between two lines.
-// Leading indentation is normalized before comparison so tab/space differences
-// don't penalize the score.
-func lineSimilarity(a, b string) float64 {
-	// Strip leading indentation (tabs and spaces) for comparison
-	trimmedA := strings.TrimLeft(a, "\t ")
-	trimmedB := strings.TrimLeft(b, "\t ")
-	wa := strings.Fields(trimmedA)
-	wb := strings.Fields(trimmedB)
-	if len(wa) == 0 && len(wb) == 0 {
-		return 1.0
-	}
-	if len(wa) == 0 || len(wb) == 0 {
-		return 0.0
-	}
-
-	ws := make(map[string]bool)
-	for _, w := range wb {
-		ws[strings.ToLower(w)] = true
-	}
-	common := 0
-	for _, w := range wa {
-		if ws[strings.ToLower(w)] {
-			common++
-		}
-	}
-	return float64(common*2) / float64(len(wa)+len(wb))
-}
-
-// fuzzyFindBlock searches for the best matching position of findBlock
-// within fileLines using a sliding window with LCS line similarity.
-// It returns the byte offset and the matched block text, or (-1, "") if no good match.
-func fuzzyFindBlock(fileLines, findLines []string, threshold float64) (int, string) {
-	if len(findLines) == 0 || len(fileLines) < len(findLines) {
-		return -1, ""
-	}
-
-	bestScore := 0.0
-	bestOffset := -1
-
-	for i := 0; i <= len(fileLines)-len(findLines); i++ {
-		window := fileLines[i : i+len(findLines)]
-		totalSim := 0.0
-		for j, fl := range findLines {
-			totalSim += lineSimilarity(fl, window[j])
-		}
-		avgSim := totalSim / float64(len(findLines))
-
-		if avgSim >= threshold && avgSim > bestScore {
-			bestScore = avgSim
-			bestOffset = i
-		}
-	}
-
-	if bestOffset == -1 {
-		return -1, ""
-	}
-	matched := strings.Join(fileLines[bestOffset:bestOffset+len(findLines)], "\n")
-	return bestOffset, matched
-}
-
-// lineOffset converts a line index and column within that line to a byte offset in the full text.
-func lineOffset(text string, lineIndex int) int {
-	lines := strings.Split(text, "\n")
-	offset := 0
-	for i := 0; i < lineIndex && i < len(lines); i++ {
-		offset += len(lines[i]) + 1 // +1 for \n
-	}
-	return offset
-}
-
-// contextAwareReplace attempts a fuzzy match fallback when exact and regex matching fail.
-// It splits find and file content into lines, extracts surrounding context from the find block,
-// and searches for a best-match position using line-level similarity.
-func contextAwareReplace(content, find, replace string) (string, int) {
-	findLines := strings.Split(find, "\n")
-	if len(findLines) == 0 {
-		return content, 0
-	}
-
-	// Extract context lines: first 2 and last 2 non-empty lines of the find block
-	var contextLines []string
-	for _, l := range findLines {
-		if strings.TrimSpace(l) != "" {
-			contextLines = append(contextLines, l)
-		}
-	}
-	if len(contextLines) > 4 {
-		contextLines = append(contextLines[:2], contextLines[len(contextLines)-2:]...)
-	}
-
-	fileLines := strings.Split(content, "\n")
-
-	// Try with full find block first (threshold 0.80)
-	if offset, _ := fuzzyFindBlock(fileLines, findLines, 0.80); offset != -1 {
-		start := lineOffset(content, offset)
-		end := lineOffset(content, offset+len(findLines))
-		newContent := content[:start] + replace + content[end:]
-		return newContent, 1
-	}
-
-	// Try with context lines only (lower threshold 0.70)
-	if len(contextLines) > 0 {
-		if offset, _ := fuzzyFindBlock(fileLines, contextLines, 0.70); offset != -1 {
-			// Replace within the matched region — expand to include lines between context anchors
-			startLine := offset
-			endLine := offset + len(contextLines)
-
-			// Expand to cover full find block height if context is a subset
-			if len(contextLines) < len(findLines) {
-				expansion := (len(findLines) - len(contextLines)) / 2
-				startLine = max(0, offset-expansion)
-				endLine = min(len(fileLines), offset+len(contextLines)+expansion)
-			}
-
-			start := lineOffset(content, startLine)
-			end := lineOffset(content, endLine)
-			
-			newContent := content[:start] + replace + content[end:]
-			 // matched text logged in verbose mode if needed
-			return newContent, 1
-		}
-	}
-
-	return content, 0
-}

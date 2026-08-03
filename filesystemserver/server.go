@@ -161,13 +161,13 @@ func NewFilesystemServer(allowedDirs []string) (*server.MCPServer, error) {
 
 	s.AddTool(mcp.NewTool(
 		"modify_file",
-		mcp.WithDescription("Update file by finding and replacing text. Supports batch operations via regex + all_occurrences — use this for replacing multiple lines matching the same pattern (e.g., removing a field from all struct literals). Provides a simple pattern matching interface without needing exact character positions."),
+		mcp.WithDescription("Update file by finding and replacing text with intelligent matching. Uses exact match first, then line-level trim comparison as fallback for indentation differences. Supports batch operations via regex + all_occurrences. Use dry_run to preview matches before applying."),
 		mcp.WithString("path",
 			mcp.Description("Path to the file to modify"),
 			mcp.Required(),
 		),
 		mcp.WithString("find",
-			mcp.Description("Text to search for (exact match or regex pattern)"),
+			mcp.Description("Text to search for (exact match or regex pattern when regex=true)"),
 			mcp.Required(),
 		),
 		mcp.WithString("replace",
@@ -179,6 +179,9 @@ func NewFilesystemServer(allowedDirs []string) (*server.MCPServer, error) {
 		),
 		mcp.WithBoolean("regex",
 			mcp.Description("Treat the find pattern as a regular expression (default: false)"),
+		),
+		mcp.WithBoolean("dry_run",
+			mcp.Description("Preview matches without modifying the file (default: false)"),
 		),
 	), h.HandleModifyFile)
 
