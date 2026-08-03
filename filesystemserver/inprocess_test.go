@@ -15,6 +15,6 @@ func TestInProcess(t *testing.T) {
 	mcpClient := startTestClient(t, fss)
 
 	// just check for a specific tool
-	tool := getTool(t, mcpClient, "read_file")
-	assert.NotNil(t, tool, "read_file tool not found in the list of tools")
+	tool := getTool(t, mcpClient, "modify_file")
+	assert.NotNil(t, tool, "modify_file tool not found in the list of tools")
 }
