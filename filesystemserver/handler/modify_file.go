@@ -227,11 +227,13 @@ func linesTrimMatch(findLines, contentLines []string) bool {
 
 // regexReplace performs replacement using regex patterns.
 func regexReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
-	if find == "" {
+	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
+
+	if normalizedFind == "" {
 		return nil, nil
 	}
 
-	re, err := regexp.Compile(find)
+	re, err := regexp.Compile(normalizedFind)
 	if err != nil {
 		return nil, fmt.Errorf("invalid regular expression: %v", err)
 	}

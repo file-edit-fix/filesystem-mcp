@@ -975,3 +975,33 @@ func TestModifyFile_OverlappingMatch(t *testing.T) {
 	assert.Equal(t, "XXa", string(content),
 		"'aaaaa' with find='aa' uses non-overlapping replacement: XXa")
 }
+
+func TestModifyFile_RegexCRLFNormalization(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "line1\r\nline2\r\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":             filePath,
+		"find":             "line[12]\r\n",
+		"replace":          "X\n",
+		"all_occurrences":  true,
+		"regex":            true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "X\nX\nline3", string(content),
+		"regex pattern with \\r\\n should match both line1 and line2 after CRLF normalization")
+}
