@@ -121,26 +121,32 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
 	normalizedReplace := interpretEscapeSequences(replace)
 
+	if normalizedFind == "" {
+		return nil, nil
+	}
+
 	// Try exact match first
-	exactCount := strings.Count(content, normalizedFind)
-	if exactCount > 0 {
-		matches := make([]matchResult, exactCount)
-		offset := 0
-		for i := 0; i < exactCount; i++ {
-			idx := strings.Index(content[offset:], normalizedFind)
-			startByte := offset + idx
-			endByte := startByte + len(normalizedFind)
-			matches[i] = matchResult{
-				startByte:   startByte,
-				endByte:     endByte,
-				replacement: normalizedReplace,
-			}
-			offset = endByte
+	var matches []matchResult
+	offset := 0
+	for {
+		idx := strings.Index(content[offset:], normalizedFind)
+		if idx < 0 {
+			break
 		}
-		if allOccurrences {
-			return matches, nil
+		startByte := offset + idx
+		endByte := startByte + len(normalizedFind)
+		matches = append(matches, matchResult{
+			startByte:   startByte,
+			endByte:     endByte,
+			replacement: normalizedReplace,
+		})
+		if !allOccurrences {
+			break
 		}
-		return matches[:1], nil
+		offset = endByte
+	}
+	if len(matches) > 0 {
+		return matches, nil
 	}
 
 	// Exact match failed — try line-level trim fallback
@@ -221,6 +227,10 @@ func linesTrimMatch(findLines, contentLines []string) bool {
 
 // regexReplace performs replacement using regex patterns.
 func regexReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
+	if find == "" {
+		return nil, nil
+	}
+
 	re, err := regexp.Compile(find)
 	if err != nil {
 		return nil, fmt.Errorf("invalid regular expression: %v", err)
@@ -256,15 +266,21 @@ func regexReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	}}, nil
 }
 
-// applyReplacements applies matchResults to content using byte offsets.
+// applyReplacements applies matchResults to content using byte offsets,
+// handling overlapping matches by advancing past the previous match's end.
 func applyReplacements(content string, matches []matchResult) string {
 	var result strings.Builder
-	result.WriteString(content[:matches[0].startByte])
+	writtenUpTo := matches[0].startByte
+	result.WriteString(content[:writtenUpTo])
 
 	for i := 0; i < len(matches); i++ {
 		result.WriteString(matches[i].replacement)
 		if i+1 < len(matches) {
-			result.WriteString(content[matches[i].endByte:matches[i+1].startByte])
+			writtenUpTo = matches[i].endByte
+			nextStart := matches[i+1].startByte
+			if writtenUpTo < nextStart {
+				result.WriteString(content[writtenUpTo:nextStart])
+			}
 		}
 	}
 	result.WriteString(content[matches[len(matches)-1].endByte:])

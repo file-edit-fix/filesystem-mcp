@@ -918,3 +918,60 @@ func TestModifyFile_TrimFallback_EmptyLineDoesNotMatchIndent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalContent, string(content), "empty line in find should not match whitespace-only line in file")
 }
+
+func TestModifyFile_EmptyFind_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "",
+		"replace":         "X",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content), "empty find should not modify the file")
+}
+
+func TestModifyFile_OverlappingMatch(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "aaaaa"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "aa",
+		"replace":         "X",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "XXa", string(content),
+		"'aaaaa' with find='aa' uses non-overlapping replacement: XXa")
+}
