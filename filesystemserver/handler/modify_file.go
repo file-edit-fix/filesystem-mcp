@@ -161,38 +161,9 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	for i := 0; i <= len(contentLines)-len(findLines); i++ {
 		window := contentLines[i : i+len(findLines)]
 		if linesTrimMatch(findLines, window) {
-			startByte := contentOffsets[i]
-			endByte := contentOffsets[i+len(findLines)]
-			if allOccurrences {
-				var allMatches []matchResult
-				searchStart := 0
-				for {
-					found := false
-					for j := searchStart; j <= len(contentLines)-len(findLines); j++ {
-						w := contentLines[j : j+len(findLines)]
-						if linesTrimMatch(findLines, w) {
-							sb := contentOffsets[j]
-							eb := contentOffsets[j+len(findLines)]
-							allMatches = append(allMatches, matchResult{
-								startByte:   sb,
-								endByte:     eb,
-								replacement: normalizedReplace,
-							})
-							searchStart = j + len(findLines)
-							found = true
-							break
-						}
-					}
-					if !found {
-						break
-					}
-				}
-				return allMatches, nil
-			}
-
 			return []matchResult{{
-				startByte:   startByte,
-				endByte:     endByte,
+				startByte:   contentOffsets[i],
+				endByte:     contentOffsets[i+len(findLines)],
 				replacement: normalizedReplace,
 			}}, nil
 		}
@@ -268,9 +239,14 @@ func regexReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	}}, nil
 }
 
-// applyReplacements applies matchResults to content using byte offsets,
-// handling overlapping matches by advancing past the previous match's end.
+// applyReplacements applies matchResults to content using byte offsets.
+// When matches overlap, only the first match's replacement is applied and
+// the overlapping region of subsequent matches is skipped.
 func applyReplacements(content string, matches []matchResult) string {
+	if len(matches) == 0 {
+		return content
+	}
+
 	var result strings.Builder
 	writtenUpTo := matches[0].startByte
 	result.WriteString(content[:writtenUpTo])
@@ -297,7 +273,11 @@ func lineOffsets(text string) []int {
 	offset := 0
 	for i, line := range lines {
 		offsets[i] = offset
-		offset += len(line) + 1
+		if i < len(lines)-1 {
+			offset += len(line) + 1
+		} else {
+			offset += len(line)
+		}
 	}
 	return offsets
 }

@@ -1005,3 +1005,33 @@ func TestModifyFile_RegexCRLFNormalization(t *testing.T) {
 	assert.Equal(t, "X\nX\nline3", string(content),
 		"regex pattern with \\r\\n should match both line1 and line2 after CRLF normalization")
 }
+
+func TestModifyFile_TrimFallback_NoTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	// No trailing newline — lineOffsets must not add +1 for the last line
+	originalContent := "aaa\nbbb"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "bbb",
+		"replace":         "REPLACED",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "aaa\nREPLACED", string(content),
+		"trim fallback should correctly replace last line when file has no trailing newline")
+}
