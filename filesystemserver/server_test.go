@@ -8,21 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// regression test for invalid schema => missing items in array definition
-func TestReadMultipleFilesSchema(t *testing.T) {
+// regression test: modify_file must be present with correct schema
+func TestModifyFileSchema(t *testing.T) {
 	fsserver, err := filesystemserver.NewFilesystemServer([]string{t.TempDir()})
 	require.NoError(t, err)
 
 	mcpClient := startTestClient(t, fsserver)
 
-	tool := getTool(t, mcpClient, "read_multiple_files")
+	tool := getTool(t, mcpClient, "modify_file")
 	require.NotNil(t, tool)
 
-	// make sure that the tool has the correct schema
-	paths, ok := tool.InputSchema.Properties["paths"]
+	// make sure that the tool has the required schema fields
+	_, ok := tool.InputSchema.Properties["path"]
 	assert.True(t, ok)
-	pathsMap, ok := paths.(map[string]any)
+	_, ok = tool.InputSchema.Properties["find"]
 	assert.True(t, ok)
-	_, ok = pathsMap["items"]
+	_, ok = tool.InputSchema.Properties["replace"]
+	assert.True(t, ok)
+	_, ok = tool.InputSchema.Properties["dry_run"]
 	assert.True(t, ok)
 }
