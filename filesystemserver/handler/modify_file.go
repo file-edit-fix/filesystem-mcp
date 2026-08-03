@@ -350,10 +350,10 @@ func dryRunResult(originalContent string, matches []matchResult) *mcp.CallToolRe
 }
 
 // successResult builds a success response.
-func successResult(originalPath, validPath string, matches []matchResult) *mcp.CallToolResult {
-	resourceURI := pathToResourceURI(validPath)
+func successResult(requestedPath, validatedPath string, matches []matchResult) *mcp.CallToolResult {
+	resourceURI := pathToResourceURI(validatedPath)
 
-	info, err := os.Stat(validPath)
+	info, err := os.Stat(validatedPath)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -370,14 +370,14 @@ func successResult(originalPath, validPath string, matches []matchResult) *mcp.C
 			mcp.TextContent{
 				Type: "text",
 				Text: fmt.Sprintf("File modified successfully. Made %d replacement(s) in %s (file size: %d bytes)",
-					len(matches), originalPath, info.Size()),
+					len(matches), requestedPath, info.Size()),
 			},
 			mcp.EmbeddedResource{
 				Type: "resource",
 				Resource: mcp.TextResourceContents{
 					URI:      resourceURI,
 					MIMEType: "text/plain",
-					Text:     fmt.Sprintf("Modified file: %s (%d bytes)", validPath, info.Size()),
+					Text:     fmt.Sprintf("Modified file: %s (%d bytes)", validatedPath, info.Size()),
 				},
 			},
 		},
