@@ -131,3 +131,17 @@ go mod tidy
 
 - **Docker** — 多阶段构建（`golang:1.23-alpine` → `alpine:latest`）。默认 CMD 传入 `/app` 作为允许目录。
 - **Smithery** — `smithery.yaml` 提供 Smithery.ai 部署的 stdio 启动命令配置，支持 `allowedDirectory` 和 `additionalDirectories` 参数。
+
+## Agent skills
+
+### Issue tracker
+
+Issues 发到 GitHub Issues（`gh` CLI）。See `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个 canonical triage roles 映射到默认 label 名称（`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`）。See `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+Single-context。`CONTEXT.md` 在 repo 根目录，`docs/adr/` 存放 ADRs。Skills 应在探索前读取这些文件。See `docs/agents/domain.md`。
