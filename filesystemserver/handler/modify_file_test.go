@@ -889,3 +889,32 @@ func TestModifyFile_AtomicWrite_PreservesPermissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalMode, info.Mode().Perm(), "file permissions should be preserved after atomic write")
 }
+
+func TestModifyFile_TrimFallback_EmptyLineDoesNotMatchIndent(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "func foo() {\n\t\t\n\t\tx := 1\n\t}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find has an empty line where file has a whitespace-only line — should NOT match
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "func foo() {\n\n\t\tx := 1\n\t}\n",
+		"replace":         "func bar() {\n\n\t\tx := 99\n\t}\n",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalContent, string(content), "empty line in find should not match whitespace-only line in file")
+}

@@ -197,12 +197,22 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 
 // linesTrimMatch returns true if every line in findLines matches the
 // corresponding line in contentLines when both are trimmed of leading whitespace.
+// Empty lines in findLines must match empty lines in contentLines exactly
+// (a whitespace-only line is not considered empty).
 func linesTrimMatch(findLines, contentLines []string) bool {
 	if len(findLines) > len(contentLines) {
 		return false
 	}
 	for i, fl := range findLines {
-		if strings.TrimLeft(fl, "\t ") != strings.TrimLeft(contentLines[i], "\t ") {
+		cl := contentLines[i]
+		flTrimmed := strings.TrimLeft(fl, "\t ")
+		if flTrimmed == "" {
+			if cl != "" {
+				return false
+			}
+			continue
+		}
+		if flTrimmed != strings.TrimLeft(cl, "\t ") {
 			return false
 		}
 	}
