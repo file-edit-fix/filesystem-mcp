@@ -19,6 +19,9 @@ type matchResult struct {
 	replacement string // the replacement text to inject
 }
 
+var reMadeReplacements = regexp.MustCompile(`Made (\d+) replacement`)
+var reDryRunMatches    = regexp.MustCompile(`Dry run: (\d+) match`)
+
 // HandleModifyFile handles the modify_file tool request
 func (fs *FilesystemHandler) HandleModifyFile(
 	ctx context.Context,
@@ -119,10 +122,9 @@ func (fs *FilesystemHandler) batchModifyResult(
 			totalMatches += count
 			modifiedCount++
 			if dryRun {
-				// Reuse the already-formatted single-file dry run result text
+				_, contentStr, matches, _, _ := fs.findMatches(ctx, p, find, replace, useRegex, allOccurrences)
 				sb.WriteString(fmt.Sprintf("  %s:\n", p))
-				// Extract match details from the single-file dry run text
-				sb.WriteString(formatDryRunFromText(text, "    "))
+				sb.WriteString(formatDryRunMatches(contentStr, matches, "    "))
 			} else {
 				sb.WriteString(fmt.Sprintf("  %s: %d replacement(s)\n", p, count))
 			}
@@ -159,29 +161,21 @@ func (fs *FilesystemHandler) batchModifyResult(
 // parseReplacementCount extracts the number of replacements from a
 // modifyFileSingle success/no-match/dry-run result text.
 func parseReplacementCount(text string) int {
-	// Match "Made N replacement(s)" or "Made N replacement(s) in ..."
-	re := regexp.MustCompile(`Made (\d+) replacement`)
-	matches := re.FindStringSubmatch(text)
+	matches := reMadeReplacements.FindStringSubmatch(text)
 	if len(matches) > 1 {
-		var count int
-		count, _ = strconv.Atoi(matches[1])
+		count, _ := strconv.Atoi(matches[1])
 		return count
 	}
-	// Match "Dry run: N match(es) found" for batch dry run results
-	re = regexp.MustCompile(`Dry run: (\d+) match`)
-	matches = re.FindStringSubmatch(text)
+	matches = reDryRunMatches.FindStringSubmatch(text)
 	if len(matches) > 1 {
-		var count int
-		count, _ = strconv.Atoi(matches[1])
+		count, _ := strconv.Atoi(matches[1])
 		return count
 	}
-	// "No matches found. File unchanged."
 	return 0
 }
 
 // findMatches reads a file, validates it, and returns the resolved path,
-// normalized content, and computed matches. Used by both modifyFileSingle
-// (for dry-run) and batchModifyResult (to call formatDryRunMatches directly).
+// normalized content, and computed matches.
 func (fs *FilesystemHandler) findMatches(
 	ctx context.Context,
 	path, find, replace string,
@@ -490,27 +484,6 @@ func formatDryRunMatches(originalContent string, matches []matchResult, indent s
 			sb.WriteString(fmt.Sprintf("%s    %s\n", indent, rl))
 		}
 		sb.WriteString(fmt.Sprintf("%s\n", indent))
-	}
-	return sb.String()
-}
-
-// formatDryRunFromText re-indents a single-file dry run result text for
-// inclusion in a batch dry run output. Strips the header line and shifts
-// all match detail lines to the given indent level.
-func formatDryRunFromText(text string, indent string) string {
-	var sb strings.Builder
-	for _, line := range strings.Split(text, "\n") {
-		// Skip the header line ("Dry run: ...")
-		if strings.HasPrefix(line, "Dry run:") {
-			continue
-		}
-		// Skip blank lines immediately after header
-		if line == "" {
-			continue
-		}
-		sb.WriteString(indent)
-		sb.WriteString(line)
-		sb.WriteString("\n")
 	}
 	return sb.String()
 }
