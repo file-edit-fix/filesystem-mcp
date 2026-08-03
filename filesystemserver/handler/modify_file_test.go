@@ -1036,6 +1036,207 @@ func TestModifyFile_TrimFallback_NoTrailingNewline(t *testing.T) {
 		"trim fallback should correctly replace last line when file has no trailing newline")
 }
 
+func TestModifyFile_Batch_MultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.go", "b.go", "c.go"} {
+		err := os.WriteFile(filepath.Join(dir, name), []byte("hello world\n"), 0644)
+		require.NoError(t, err)
+	}
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filepath.Join(dir, "a.go"),
+		"paths":           []string{filepath.Join(dir, "a.go"), filepath.Join(dir, "b.go"), filepath.Join(dir, "c.go")},
+		"find":            "hello",
+		"replace":         "hi",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "Batch modify completed")
+	assert.Contains(t, text, "3/3 files modified")
+	assert.Contains(t, text, "a.go: 1 replacement(s)")
+	assert.Contains(t, text, "b.go: 1 replacement(s)")
+	assert.Contains(t, text, "c.go: 1 replacement(s)")
+
+	for _, name := range []string{"a.go", "b.go", "c.go"} {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, err)
+		assert.Equal(t, "hi world\n", string(content))
+	}
+}
+
+func TestModifyFile_Batch_PartialFailure(t *testing.T) {
+	dir := t.TempDir()
+	// Create a.go and c.go, but not b.go
+	err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("hello world\n"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(dir, "c.go"), []byte("hello world\n"), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filepath.Join(dir, "a.go"),
+		"paths":           []string{filepath.Join(dir, "a.go"), filepath.Join(dir, "b.go"), filepath.Join(dir, "c.go")},
+		"find":            "hello",
+		"replace":         "hi",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "Batch modify completed")
+	assert.Contains(t, text, "2/3 files modified")
+	assert.Contains(t, text, "a.go: 1 replacement(s)")
+	assert.Contains(t, text, "b.go: Error")
+	assert.Contains(t, text, "c.go: 1 replacement(s)")
+
+	// a.go and c.go modified, b.go untouched
+	content, err := os.ReadFile(filepath.Join(dir, "a.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "hi world\n", string(content))
+
+	content, err = os.ReadFile(filepath.Join(dir, "c.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "hi world\n", string(content))
+}
+
+func TestModifyFile_Batch_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.go", "b.go"} {
+		err := os.WriteFile(filepath.Join(dir, name), []byte("hello world\n"), 0644)
+		require.NoError(t, err)
+	}
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filepath.Join(dir, "a.go"),
+		"paths":           []string{filepath.Join(dir, "a.go"), filepath.Join(dir, "b.go")},
+		"find":            "nonexistent",
+		"replace":         "replacement",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "Batch modify completed")
+	assert.Contains(t, text, "0/2 files modified")
+	assert.Contains(t, text, "a.go: No matches")
+	assert.Contains(t, text, "b.go: No matches")
+
+	// Files should be unchanged
+	for _, name := range []string{"a.go", "b.go"} {
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, err)
+		assert.Equal(t, "hello world\n", string(content))
+	}
+}
+
+func TestModifyFile_Batch_EmptyPaths(t *testing.T) {
+	dir := t.TempDir()
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":    filepath.Join(dir, "a.go"),
+		"paths":   []string{},
+		"find":    "hello",
+		"replace": "hi",
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "paths array must not be empty")
+}
+
+func TestModifyFile_Batch_NoPathOrPaths(t *testing.T) {
+	dir := t.TempDir()
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"find":    "hello",
+		"replace": "hi",
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "either path or paths must be specified")
+}
+
+func TestModifyFile_Batch_DryRun(t *testing.T) {
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "file1.go"), []byte("hello world\nfoo bar\n"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(dir, "file2.go"), []byte("nothing here\n"), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filepath.Join(dir, "file1.go"),
+		"paths":           []string{filepath.Join(dir, "file1.go"), filepath.Join(dir, "file2.go")},
+		"find":            "hello",
+		"replace":         "hi",
+		"all_occurrences": true,
+		"dry_run":         true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcp.TextContent).Text
+	assert.Contains(t, text, "Batch dry run")
+	assert.Contains(t, text, "2 file(s)")
+	assert.Contains(t, text, "1 match(es) found")
+	assert.Contains(t, text, "file1.go:")
+	assert.Contains(t, text, "hello")
+	assert.Contains(t, text, "-> would be replaced with:")
+	assert.Contains(t, text, "hi")
+	assert.Contains(t, text, "file2.go: No matches")
+
+	// Files should be unchanged
+	content, err := os.ReadFile(filepath.Join(dir, "file1.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello world\nfoo bar\n", string(content))
+
+	content, err = os.ReadFile(filepath.Join(dir, "file2.go"))
+	require.NoError(t, err)
+	assert.Equal(t, "nothing here\n", string(content))
+}
+
 func TestModifyFile_NormalizeBlankLines(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.go")

@@ -119,10 +119,10 @@ func (fs *FilesystemHandler) batchModifyResult(
 			totalMatches += count
 			modifiedCount++
 			if dryRun {
-				// Get raw matches via findMatches to avoid re-parsing formatted text
-				_, _, matches, _, _ := fs.findMatches(ctx, p, find, replace, useRegex, allOccurrences)
+				// Reuse the already-formatted single-file dry run result text
 				sb.WriteString(fmt.Sprintf("  %s:\n", p))
-				sb.WriteString(formatDryRunMatches("", matches, "    "))
+				// Extract match details from the single-file dry run text
+				sb.WriteString(formatDryRunFromText(text, "    "))
 			} else {
 				sb.WriteString(fmt.Sprintf("  %s: %d replacement(s)\n", p, count))
 			}
@@ -157,7 +157,7 @@ func (fs *FilesystemHandler) batchModifyResult(
 }
 
 // parseReplacementCount extracts the number of replacements from a
-// modifyFileSingle success/no-match result text.
+// modifyFileSingle success/no-match/dry-run result text.
 func parseReplacementCount(text string) int {
 	// Match "Made N replacement(s)" or "Made N replacement(s) in ..."
 	re := regexp.MustCompile(`Made (\d+) replacement`)
@@ -167,7 +167,15 @@ func parseReplacementCount(text string) int {
 		count, _ = strconv.Atoi(matches[1])
 		return count
 	}
-	// "No matches found. File unchanged." or "Dry run: N match(es) found"
+	// Match "Dry run: N match(es) found" for batch dry run results
+	re = regexp.MustCompile(`Dry run: (\d+) match`)
+	matches = re.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		var count int
+		count, _ = strconv.Atoi(matches[1])
+		return count
+	}
+	// "No matches found. File unchanged."
 	return 0
 }
 
@@ -482,6 +490,27 @@ func formatDryRunMatches(originalContent string, matches []matchResult, indent s
 			sb.WriteString(fmt.Sprintf("%s    %s\n", indent, rl))
 		}
 		sb.WriteString(fmt.Sprintf("%s\n", indent))
+	}
+	return sb.String()
+}
+
+// formatDryRunFromText re-indents a single-file dry run result text for
+// inclusion in a batch dry run output. Strips the header line and shifts
+// all match detail lines to the given indent level.
+func formatDryRunFromText(text string, indent string) string {
+	var sb strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		// Skip the header line ("Dry run: ...")
+		if strings.HasPrefix(line, "Dry run:") {
+			continue
+		}
+		// Skip blank lines immediately after header
+		if line == "" {
+			continue
+		}
+		sb.WriteString(indent)
+		sb.WriteString(line)
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }
