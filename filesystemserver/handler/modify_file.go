@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -62,6 +63,10 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		return fs.batchModifyResult(ctx, pathSlice, find, replace, useRegex, allOccurrences, dryRun)
 	}
 
+	if _, hasPath := argsMap["path"]; !hasPath {
+		return errorResult("Error: either path or paths must be specified"), nil
+	}
+
 	path, err := request.RequireString("path")
 	if err != nil {
 		return nil, err
@@ -114,22 +119,16 @@ func (fs *FilesystemHandler) batchModifyResult(
 			totalMatches += count
 			modifiedCount++
 			if dryRun {
-				// For dry run, show what modifyFileSingle already formatted
-				// Strip "Dry run:" header prefix and re-add indentation
-				lines := strings.Split(text, "\n")
-				for _, line := range lines {
-					sb.WriteString(fmt.Sprintf("  %s\n", line))
-				}
+				// Get raw matches via findMatches to avoid re-parsing formatted text
+				_, _, matches, _, _ := fs.findMatches(ctx, p, find, replace, useRegex, allOccurrences)
+				sb.WriteString(fmt.Sprintf("  %s:\n", p))
+				sb.WriteString(formatDryRunMatches("", matches, "    "))
 			} else {
 				sb.WriteString(fmt.Sprintf("  %s: %d replacement(s)\n", p, count))
 			}
 		} else {
 			// No matches
-			if dryRun {
-				sb.WriteString(fmt.Sprintf("  %s: No matches\n", p))
-			} else {
-				sb.WriteString(fmt.Sprintf("  %s: No matches\n", p))
-			}
+			sb.WriteString(fmt.Sprintf("  %s: No matches\n", p))
 		}
 	}
 
@@ -165,11 +164,59 @@ func parseReplacementCount(text string) int {
 	matches := re.FindStringSubmatch(text)
 	if len(matches) > 1 {
 		var count int
-		fmt.Sscanf(matches[1], "%d", &count)
+		count, _ = strconv.Atoi(matches[1])
 		return count
 	}
 	// "No matches found. File unchanged." or "Dry run: N match(es) found"
 	return 0
+}
+
+// findMatches reads a file, validates it, and returns the resolved path,
+// normalized content, and computed matches. Used by both modifyFileSingle
+// (for dry-run) and batchModifyResult (to call formatDryRunMatches directly).
+func (fs *FilesystemHandler) findMatches(
+	ctx context.Context,
+	path, find, replace string,
+	useRegex, allOccurrences bool,
+) (resolvedPath, contentStr string, matches []matchResult, result *mcp.CallToolResult, err error) {
+	var err2 error
+	resolvedPath, err2 = resolvePath(path)
+	if err2 != nil {
+		return "", "", nil, errorResult(fmt.Sprintf("Error: %v", err2)), nil
+	}
+	path = resolvedPath
+
+	validPath, err2 := fs.validatePath(path)
+	if err2 != nil {
+		return "", "", nil, errorResult(fmt.Sprintf("Error: %v", err2)), nil
+	}
+
+	if info, err2 := os.Stat(validPath); err2 == nil && info.IsDir() {
+		return "", "", nil, errorResult("Error: Cannot modify a directory"), nil
+	}
+
+	if _, err2 := os.Stat(validPath); os.IsNotExist(err2) {
+		return "", "", nil, errorResult(fmt.Sprintf("Error: File not found: %s", path)), nil
+	}
+
+	content, err2 := os.ReadFile(validPath)
+	if err2 != nil {
+		return "", "", nil, errorResult(fmt.Sprintf("Error reading file: %v", err2)), nil
+	}
+
+	contentStr = strings.ReplaceAll(string(content), "\r\n", "\n")
+
+	if useRegex {
+		matches, err2 = regexReplace(contentStr, find, replace, allOccurrences)
+	} else {
+		matches, err2 = mixedReplace(contentStr, find, replace, allOccurrences)
+	}
+
+	if err2 != nil {
+		return "", "", nil, errorResult(fmt.Sprintf("Error: Invalid regular expression: %v", err2)), nil
+	}
+
+	return resolvedPath, contentStr, matches, nil, nil
 }
 
 // modifyFileSingle processes a single file modification request.
@@ -178,46 +225,12 @@ func (fs *FilesystemHandler) modifyFileSingle(
 	path, find, replace string,
 	useRegex, allOccurrences, dryRun bool,
 ) (*mcp.CallToolResult, error) {
-	resolvedPath, err := resolvePath(path)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Error: %v", err)), nil
-	}
-	path = resolvedPath
-
-	validPath, err := fs.validatePath(path)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Error: %v", err)), nil
+	resolvedPath, contentStr, matches, result, err := fs.findMatches(ctx, path, find, replace, useRegex, allOccurrences)
+	if err != nil || result != nil {
+		return result, err
 	}
 
-	if info, err := os.Stat(validPath); err == nil && info.IsDir() {
-		return errorResult("Error: Cannot modify a directory"), nil
-	}
-
-	if _, err := os.Stat(validPath); os.IsNotExist(err) {
-		return errorResult(fmt.Sprintf("Error: File not found: %s", path)), nil
-	}
-
-	content, err := os.ReadFile(validPath)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Error reading file: %v", err)), nil
-	}
-
-	// Normalize line endings once — all matching and replacement operates on this
-	contentStr := strings.ReplaceAll(string(content), "\r\n", "\n")
-
-	var replacements []matchResult
-
-	if useRegex {
-		replacements, err = regexReplace(contentStr, find, replace, allOccurrences)
-	} else {
-		replacements, err = mixedReplace(contentStr, find, replace, allOccurrences)
-	}
-
-	if err != nil {
-		return errorResult(fmt.Sprintf("Error: Invalid regular expression: %v", err)), nil
-	}
-
-	if len(replacements) == 0 {
+	if len(matches) == 0 {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				mcp.TextContent{
@@ -229,15 +242,15 @@ func (fs *FilesystemHandler) modifyFileSingle(
 	}
 
 	if dryRun {
-		return dryRunResult(contentStr, replacements), nil
+		return dryRunResult(contentStr, matches), nil
 	}
 
-	modifiedContent := applyReplacements(contentStr, replacements)
-	if err := atomicWriteFile(validPath, modifiedContent); err != nil {
+	modifiedContent := applyReplacements(contentStr, matches)
+	if err := atomicWriteFile(resolvedPath, modifiedContent); err != nil {
 		return errorResult(fmt.Sprintf("Error writing to file: %v", err)), nil
 	}
 
-	return successResult(path, validPath, replacements), nil
+	return successResult(path, resolvedPath, matches), nil
 }
 
 // mixedReplace performs replacement with mixed matching strategy:
@@ -454,23 +467,30 @@ func atomicWriteFile(path, content string) error {
 	return nil
 }
 
+// formatDryRunMatches returns the per-match detail lines for a dry run result,
+// without any header. Each line is prefixed with the given indent string.
+func formatDryRunMatches(originalContent string, matches []matchResult, indent string) string {
+	var sb strings.Builder
+	for i, m := range matches {
+		startLine := strings.Count(originalContent[:m.startByte], "\n")
+		sb.WriteString(fmt.Sprintf("%sMatch %d at line %d:\n", indent, i+1, startLine+1))
+		for _, line := range strings.Split(originalContent[m.startByte:m.endByte], "\n") {
+			sb.WriteString(fmt.Sprintf("%s  %s\n", indent, line))
+		}
+		sb.WriteString(fmt.Sprintf("%s  -> would be replaced with:\n", indent))
+		for _, rl := range strings.Split(m.replacement, "\n") {
+			sb.WriteString(fmt.Sprintf("%s    %s\n", indent, rl))
+		}
+		sb.WriteString(fmt.Sprintf("%s\n", indent))
+	}
+	return sb.String()
+}
+
 // dryRunResult builds a dry_run response listing matched lines.
 func dryRunResult(originalContent string, matches []matchResult) *mcp.CallToolResult {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Dry run: %d match(es) found (no changes applied)\n\n", len(matches)))
-
-	for i, m := range matches {
-		startLine := strings.Count(originalContent[:m.startByte], "\n")
-		sb.WriteString(fmt.Sprintf("Match %d at line %d:\n", i+1, startLine+1))
-		for _, line := range strings.Split(originalContent[m.startByte:m.endByte], "\n") {
-			sb.WriteString(fmt.Sprintf("  %s\n", line))
-		}
-		sb.WriteString("  -> would be replaced with:\n")
-		for _, rl := range strings.Split(m.replacement, "\n") {
-			sb.WriteString(fmt.Sprintf("    %s\n", rl))
-		}
-		sb.WriteString("\n")
-	}
+	sb.WriteString(formatDryRunMatches(originalContent, matches, ""))
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
