@@ -779,7 +779,8 @@ func TestModifyFile_MixedMatch_ExactThenTrim(t *testing.T) {
 	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
 	require.NoError(t, err)
 
-	// First occurrence uses exact match (same indent), second uses trim fallback
+	// find has leading "\t" that doesn't match file content exactly;
+	// trim fallback matches on first occurrence (all_occurrences: false)
 	request := mcp.CallToolRequest{}
 	request.Params.Name = "modify_file"
 	request.Params.Arguments = map[string]any{
