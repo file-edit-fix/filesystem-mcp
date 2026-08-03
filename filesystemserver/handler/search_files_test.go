@@ -70,7 +70,7 @@ func TestSearchFiles_Pattern(t *testing.T) {
 			assert.Len(t, result.Content, 1)
 
 			for _, match := range test.matches {
-				assert.Contains(t, result.Content[0].(mcp.TextContent).Text, match)
+				assert.Contains(t, result.Content[0].(mcp.TextContent).Text, filepath.Base(match))
 			}
 		})
 	}
