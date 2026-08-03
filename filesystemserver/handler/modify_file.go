@@ -53,6 +53,15 @@ func (fs *FilesystemHandler) HandleModifyFile(
 		dryRun = val
 	}
 
+	return fs.modifyFileSingle(ctx, path, find, replace, useRegex, allOccurrences, dryRun)
+}
+
+// modifyFileSingle processes a single file modification request.
+func (fs *FilesystemHandler) modifyFileSingle(
+	ctx context.Context,
+	path, find, replace string,
+	useRegex, allOccurrences, dryRun bool,
+) (*mcp.CallToolResult, error) {
 	resolvedPath, err := resolvePath(path)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Error: %v", err)), nil
