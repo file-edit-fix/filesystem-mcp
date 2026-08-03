@@ -856,3 +856,35 @@ func TestModifyFile_TrimFallback_FindLongerThanFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, originalContent, string(content), "file should be unchanged when find is longer than file")
 }
+
+func TestModifyFile_AtomicWrite_PreservesPermissions(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "hello world"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	originalInfo, err := os.Stat(filePath)
+	require.NoError(t, err)
+	originalMode := originalInfo.Mode().Perm()
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "hello",
+		"replace":         "hi",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalMode, info.Mode().Perm(), "file permissions should be preserved after atomic write")
+}

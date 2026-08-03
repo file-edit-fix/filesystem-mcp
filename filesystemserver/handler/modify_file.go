@@ -15,7 +15,6 @@ import (
 type matchResult struct {
 	startByte   int    // byte offset where match starts in content
 	endByte     int    // byte offset where match ends (exclusive)
-	matchLines  int    // number of lines matched
 	replacement string // the replacement text to inject
 }
 
@@ -134,7 +133,6 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 			matches[i] = matchResult{
 				startByte:   startByte,
 				endByte:     endByte,
-				matchLines:  1 + strings.Count(normalizedFind, "\n"),
 				replacement: normalizedReplace,
 			}
 			offset = endByte
@@ -171,7 +169,6 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 							allMatches = append(allMatches, matchResult{
 								startByte:   sb,
 								endByte:     eb,
-								matchLines:  len(findLines),
 								replacement: normalizedReplace,
 							})
 							searchStart = j + len(findLines)
@@ -189,7 +186,6 @@ func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 			return []matchResult{{
 				startByte:   startByte,
 				endByte:     endByte,
-				matchLines:  len(findLines),
 				replacement: normalizedReplace,
 			}}, nil
 		}
@@ -231,7 +227,6 @@ func regexReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 			matches[i] = matchResult{
 				startByte:   l[0],
 				endByte:     l[1],
-				matchLines:  1 + strings.Count(content[l[0]:l[1]], "\n"),
 				replacement: normalizedReplace,
 			}
 		}
@@ -246,7 +241,6 @@ func regexReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	return []matchResult{{
 		startByte:   loc[0],
 		endByte:     loc[1],
-		matchLines:  1 + strings.Count(content[loc[0]:loc[1]], "\n"),
 		replacement: normalizedReplace,
 	}}, nil
 }
@@ -277,8 +271,15 @@ func lineOffset(text string, lineIndex int) int {
 	return offset
 }
 
-// atomicWriteFile writes content to a temp file then renames it atomically.
+// atomicWriteFile writes content to a temp file with the original file's
+// permissions, then renames it atomically.
 func atomicWriteFile(path, content string) error {
+	info, err := os.Stat(path)
+	var perm os.FileMode = 0644
+	if err == nil {
+		perm = info.Mode().Perm()
+	}
+
 	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, "modify_file_*.tmp")
 	if err != nil {
@@ -290,6 +291,11 @@ func atomicWriteFile(path, content string) error {
 		tmpFile.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("write temp file: %v", err)
+	}
+	if err := tmpFile.Chmod(perm); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp file: %v", err)
 	}
 	if err := tmpFile.Close(); err != nil {
 		os.Remove(tmpPath)
