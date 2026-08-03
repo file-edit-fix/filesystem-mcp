@@ -1035,3 +1035,62 @@ func TestModifyFile_TrimFallback_NoTrailingNewline(t *testing.T) {
 	assert.Equal(t, "aaa\nREPLACED", string(content),
 		"trim fallback should correctly replace last line when file has no trailing newline")
 }
+
+func TestModifyFile_NormalizeBlankLines(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "line1\n\n\n\nline2\n\n\n\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line2",
+		"replace":         "line2_modified",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	expected := "line1\n\nline2_modified\n\nline3"
+	assert.Equal(t, expected, string(content),
+		"runs of 4+ blank lines should be collapsed to 2")
+}
+
+func TestModifyFile_NormalizeBlankLines_Unchanged(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.go")
+	originalContent := "line1\n\nline2\n\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line2",
+		"replace":         "line2_modified",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "line1\n\nline2_modified\n\nline3", string(content),
+		"runs of 2 blank lines should not be affected")
+}

@@ -263,7 +263,15 @@ func applyReplacements(content string, matches []matchResult) string {
 	}
 	result.WriteString(content[matches[len(matches)-1].endByte:])
 
-	return result.String()
+	return normalizeBlankLines(result.String())
+}
+
+// normalizeBlankLines collapses runs of 3+ consecutive blank lines into
+// exactly 2 blank lines. This prevents gaps like triple-empty-lines after
+// deleting import lines or other block-structured content.
+func normalizeBlankLines(s string) string {
+	re := regexp.MustCompile(`(\n){4,}`)
+	return re.ReplaceAllString(s, "$1$1")
 }
 
 // lineOffsets returns a slice where offsets[i] is the byte offset of line i in text.
