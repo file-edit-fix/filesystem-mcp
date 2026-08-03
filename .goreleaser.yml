@@ -53,8 +53,8 @@ changelog:
 
 release:
   github:
-    owner: bigmanBass666
-    name: mcp-filesystem-server
+    owner: file-edit-fix
+    name: filesystem-mcp
   draft: false
   prerelease: auto
   name_template: "{{ .Tag }}"
