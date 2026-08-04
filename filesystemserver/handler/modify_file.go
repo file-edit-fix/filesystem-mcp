@@ -88,7 +88,6 @@ func (fs *FilesystemHandler) batchModifyResult(
 ) (*mcp.CallToolResult, error) {
 	totalMatches := 0
 	modifiedCount := 0
-	errorCount := 0
 
 	var sb strings.Builder
 
@@ -101,15 +100,11 @@ func (fs *FilesystemHandler) batchModifyResult(
 	for _, p := range paths {
 		result, err := fs.modifyFileSingle(ctx, p, find, replace, useRegex, allOccurrences, dryRun)
 		if err != nil {
-			// Hardware/system error (shouldn't happen, modifyFileSingle returns nil error)
-			errorCount++
 			sb.WriteString(fmt.Sprintf("  %s: Error — %v\n", p, err))
 			continue
 		}
 
 		if result.IsError {
-			// File-level error (file not found, access denied, invalid regex, etc.)
-			errorCount++
 			text := result.Content[0].(mcp.TextContent).Text
 			sb.WriteString(fmt.Sprintf("  %s: Error — %s\n", p, text))
 			continue
@@ -175,7 +170,7 @@ func parseReplacementCount(text string) int {
 }
 
 // findMatches reads a file, validates it, and returns the resolved path,
-// normalized content, and computed matches.
+// content with CRLF line endings normalized to LF, and computed matches.
 func (fs *FilesystemHandler) findMatches(
 	ctx context.Context,
 	path, find, replace string,
@@ -379,9 +374,9 @@ func regexReplace(content, find, replace string, allOccurrences bool) ([]matchRe
 	}}, nil
 }
 
-// applyReplacements applies matchResults to content using byte offsets.
-// When matches overlap, only the first match's replacement is applied and
-// the overlapping region of subsequent matches is skipped.
+// applyReplacements builds the output by weaving replacements into the
+// original content. Non-overlapping gaps between consecutive matches are
+// copied verbatim; overlapping region of later matches is silently dropped.
 func applyReplacements(content string, matches []matchResult) string {
 	if len(matches) == 0 {
 		return content
