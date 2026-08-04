@@ -21,6 +21,15 @@ func NewFilesystemServer(allowedDirs []string) (*server.MCPServer, error) {
 	)
 
 	s.AddTool(mcp.NewTool(
+		"read_file",
+		mcp.WithDescription("Read the complete contents of a file from the filesystem. Returns raw file content without any normalization — tabs, CRLF, and all bytes are preserved as-is."),
+		mcp.WithString("path",
+			mcp.Description("Path to the file to read (required)"),
+			mcp.Required(),
+		),
+	), h.HandleReadFile)
+
+	s.AddTool(mcp.NewTool(
 		"modify_file",
 		mcp.WithDescription("Update file by finding and replacing text with intelligent matching. Uses exact match first, then line-level trim comparison as fallback for indentation differences. Supports batch operations via regex + all_occurrences. Use dry_run to preview matches before applying."),
 		mcp.WithString("path",
