@@ -59,8 +59,11 @@ func (fs *FilesystemHandler) HandleModifyFile(
 
 	paths, hasPaths := argsMap["paths"]
 	if hasPaths {
-		pathSlice, ok := paths.([]string)
-		if !ok || len(pathSlice) == 0 {
+		pathSlice, err := toStringSlice(paths)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		if len(pathSlice) == 0 {
 			return errorResult("Error: paths array must not be empty"), nil
 		}
 		return fs.batchModifyResult(ctx, pathSlice, find, replace, useRegex, allOccurrences, dryRun)
@@ -557,5 +560,24 @@ func interpretEscapeSequences(s string) string {
 		"\\\\", "\\",
 	)
 	return r.Replace(s)
+}
+
+// toStringSlice converts []interface{} or []string to []string.
+func toStringSlice(v interface{}) ([]string, error) {
+	if ss, ok := v.([]string); ok {
+		return ss, nil
+	}
+	if raw, ok := v.([]interface{}); ok {
+		result := make([]string, len(raw))
+		for i, item := range raw {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("Error: paths must be an array of strings")
+			}
+			result[i] = s
+		}
+		return result, nil
+	}
+	return nil, fmt.Errorf("Error: paths must be an array")
 }
 
