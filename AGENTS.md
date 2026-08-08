@@ -6,6 +6,10 @@ Fork 自 [mark3labs/mcp-filesystem-server](https://github.com/mark3labs/mcp-file
 
 Go 1.23+ · MCP stdio 协议 · `github.com/mark3labs/mcp-go`
 
+## Git Workflow
+
+本仓库使用 **GitHub Flow**：从 main 创建功能分支，通过 PR 合并，合并后删除分支。
+
 ## Dev Environment Tips
 
 ```bash
