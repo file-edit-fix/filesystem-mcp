@@ -256,8 +256,7 @@ func (fs *FilesystemHandler) modifyFileSingle(
 // mixedReplace performs replacement with mixed matching strategy:
 // exact match first, then line-level trim fallback.
 func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
-	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
-	normalizedFind = interpretEscapeSequences(normalizedFind)
+	normalizedFind := interpretEscapeSequences(strings.ReplaceAll(find, "\r\n", "\n"))
 	normalizedReplace := interpretEscapeSequences(replace)
 
 	if normalizedFind == "" {
@@ -338,7 +337,6 @@ func linesTrimMatch(findLines, contentLines []string) bool {
 // regexReplace performs replacement using regex patterns.
 func regexReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
 	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
-	normalizedFind = interpretEscapeSequences(normalizedFind)
 
 	if normalizedFind == "" {
 		return nil, nil
@@ -552,9 +550,9 @@ func errorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
-// interpretEscapeSequences interprets common escape sequences: \n -> LF, \r -> CR,
-// \t -> tab, \\ -> backslash. Processes left-to-right so \n in "newuser" is not
-// misinterpreted as a newline.
+// interpretEscapeSequences interprets common escape sequences in a string:
+// \n -> newline, \r -> carriage return, \t -> tab, \\ -> backslash
+// Uses left-to-right byte scanning to avoid ordering issues with backslash sequences.
 func interpretEscapeSequences(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
