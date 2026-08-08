@@ -62,7 +62,7 @@ filesystem-mcp/
 
 - **匹配逻辑**：`mixedReplace()` — 精确匹配优先，失败后回退到行级 trim 模糊匹配
 - **CRLF 处理**：读入时统一 `\r\n` → `\n`，这是设计意图不是 bug（见 `modify_file.go:207`）
-- **工具参数**：`modify_file` 的 `replace` 支持转义序列（`\n`、`\t`、`\r`、`\\`），仅当 `regex: true` 时生效
+- **工具参数**：`modify_file` 的 `find`（精确匹配模式）和 `replace` 均支持转义序列（`\n`、`\t`、`\r`、`\\`）；`regex` 模式由 Go `regexp.Compile` 原生处理 `\t`/`\n`/`\r`
 - **错误处理**：返回 `*mcp.CallToolResult` + error，`IsError` 标记错误响应
 
 ## Key Constants (`types.go`)
