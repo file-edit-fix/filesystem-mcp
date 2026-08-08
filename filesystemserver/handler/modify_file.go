@@ -257,7 +257,6 @@ func (fs *FilesystemHandler) modifyFileSingle(
 // exact match first, then line-level trim fallback.
 func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
 	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
-	normalizedFind = interpretEscapeSequences(normalizedFind)
 	normalizedReplace := interpretEscapeSequences(replace)
 
 	if normalizedFind == "" {
@@ -338,7 +337,6 @@ func linesTrimMatch(findLines, contentLines []string) bool {
 // regexReplace performs replacement using regex patterns.
 func regexReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
 	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
-	normalizedFind = interpretEscapeSequences(normalizedFind)
 
 	if normalizedFind == "" {
 		return nil, nil
