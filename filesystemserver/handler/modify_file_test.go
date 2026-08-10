@@ -339,8 +339,8 @@ func TestModifyFile_RegexReplaceBackslashLiteral(t *testing.T) {
 	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
 	require.NoError(t, err)
 
-	// Use \\\\ (double escape) in regex replace — should be interpreted as literal backslash
-	// The JSON value is "\\\\" → Go string is "\\" → interpretEscapeSequences converts to "\"
+	// find must use \\\\n for literal "\n" in "newuser" (interpretEscapeSequences applies to find too)
+	// Go string "\\\\\\\\Users\\\\newuser" → interpretEscapeSequences → "\Users\newuser"
 	request := mcp.CallToolRequest{}
 	request.Params.Name = "modify_file"
 	request.Params.Arguments = map[string]any{
@@ -576,6 +576,102 @@ func TestModifyFile_ExactReplaceWithEscapedTab(t *testing.T) {
 	assert.Equal(t, "before replaced\twith\ttab after", string(content))
 }
 
+// TestModifyFile_ExactFindWithEscapedTab tests that \t in find is interpreted
+// as actual tab in exact match mode.
+// The find string contains literal backslash+t (not actual tabs), which
+// interpretEscapeSequences converts to actual tabs for matching.
+func TestModifyFile_ExactFindWithEscapedTab(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "before\tmatch\tafter"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// find uses literal \t sequences (backslash + t), interpretEscapeSequences
+	// converts them to actual tab characters for matching
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "before\\tmatch\\tafter",
+		"replace":         "beforeXafter",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "beforeXafter", string(content))
+}
+
+// TestModifyFile_RegexFindWithEscapedTab tests that \t in find is interpreted
+// as actual tab in regex mode.
+func TestModifyFile_RegexFindWithEscapedTab(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "\tfunc main() {\n\t\tx := 1\n\t}\n"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "\\tfunc main\\(\\) \\{\\n\\t\\tx := 1\\n\\t\\}\\n",
+		"replace":         "\tfunc main() {\n\t\tx := 99\n\t}\n",
+		"all_occurrences": true,
+		"regex":           true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "x := 99")
+	assert.NotContains(t, string(content), "x := 1")
+}
+
+// TestModifyFile_ExactFindWithEscapedNewline tests that \n in find is interpreted
+// as actual newline in exact match mode.
+func TestModifyFile_ExactFindWithEscapedNewline(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "line1\nline2\nline3"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "line1\nline2",
+		"replace":         "REPLACED",
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "REPLACED\nline3", string(content))
+}
+
 func TestModifyFile_ExactReplaceWithEscapedBackslash(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.txt")
@@ -588,12 +684,13 @@ func TestModifyFile_ExactReplaceWithEscapedBackslash(t *testing.T) {
 
 	// Non-regex path: \\ in replace should be interpreted as literal backslash
 	// The JSON value is "\\\\" → Go string is "\\" → interpretEscapeSequences converts to "\"
-	// In exact match mode, find uses the file's literal backslash content: "C:\Users\name"
+	// In exact match mode, find also goes through interpretEscapeSequences:
+	// "C:\\\\Users\\\\name" → after interpretEscapeSequences → "C:\Users\name"
 	request := mcp.CallToolRequest{}
 	request.Params.Name = "modify_file"
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
-		"find":            "C:\\Users\\name",
+		"find":            "C:\\\\Users\\\\name",
 		"replace":         "D:\\\\Users\\\\newuser",
 		"regex":           false,
 		"all_occurrences": true,

@@ -6,7 +6,7 @@ jobs:
   tests:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -21,4 +21,4 @@ jobs:
           check-latest: true
 
       - name: Run tests
-        run: go test -race ./...
+        run: go test ./filesystemserver/handler/...

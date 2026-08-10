@@ -256,7 +256,7 @@ func (fs *FilesystemHandler) modifyFileSingle(
 // mixedReplace performs replacement with mixed matching strategy:
 // exact match first, then line-level trim fallback.
 func mixedReplace(content, find, replace string, allOccurrences bool) ([]matchResult, error) {
-	normalizedFind := strings.ReplaceAll(find, "\r\n", "\n")
+	normalizedFind := interpretEscapeSequences(strings.ReplaceAll(find, "\r\n", "\n"))
 	normalizedReplace := interpretEscapeSequences(replace)
 
 	if normalizedFind == "" {
@@ -550,16 +550,36 @@ func errorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
-// interpretEscapeSequences interprets common escape sequences in the replace string:
+// interpretEscapeSequences interprets common escape sequences in a string:
 // \n -> newline, \r -> carriage return, \t -> tab, \\ -> backslash
+// Uses left-to-right byte scanning to avoid ordering issues with backslash sequences.
 func interpretEscapeSequences(s string) string {
-	r := strings.NewReplacer(
-		"\\n", "\n",
-		"\\r", "\r",
-		"\\t", "\t",
-		"\\\\", "\\",
-	)
-	return r.Replace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				b.WriteByte('\n')
+				i++
+				continue
+			case 'r':
+				b.WriteByte('\r')
+				i++
+				continue
+			case 't':
+				b.WriteByte('\t')
+				i++
+				continue
+			case '\\':
+				b.WriteByte('\\')
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // toStringSlice converts []interface{} or []string to []string.
