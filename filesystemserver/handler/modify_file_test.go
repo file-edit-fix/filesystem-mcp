@@ -346,7 +346,7 @@ func TestModifyFile_RegexReplaceBackslashLiteral(t *testing.T) {
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
 		"find":            "C:\\\\Users\\\\name",
-		"replace":         "D:\\\\Users\\\\newuser",
+		"replace":         "D:\\Users\\newuser",
 		"regex":           true,
 		"all_occurrences": true,
 	}
@@ -530,7 +530,7 @@ func TestModifyFile_ExactReplaceSingleWithEscapedNewline(t *testing.T) {
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
 		"find":            ", ",
-		"replace":         "\\n",
+		"replace":         "\n",
 		"regex":           false,
 		"all_occurrences": false,
 	}
@@ -691,7 +691,7 @@ func TestModifyFile_ExactReplaceWithEscapedBackslash(t *testing.T) {
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
 		"find":            "C:\\\\Users\\\\name",
-		"replace":         "D:\\\\Users\\\\newuser",
+		"replace":         "D:\\Users\\newuser",
 		"regex":           false,
 		"all_occurrences": true,
 	}
