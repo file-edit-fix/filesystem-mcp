@@ -467,7 +467,7 @@ func TestModifyFile_RegexReplaceWithEscapedNewline(t *testing.T) {
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
 		"find":            ", ",
-		"replace":         "\\n",
+		"replace":         "\n",
 		"regex":           true,
 		"all_occurrences": true,
 	}
@@ -499,7 +499,7 @@ func TestModifyFile_ExactReplaceWithEscapedNewline(t *testing.T) {
 	request.Params.Arguments = map[string]any{
 		"path":            filePath,
 		"find":            ", ",
-		"replace":         "\\n",
+		"replace":         "\n",
 		"regex":           false,
 		"all_occurrences": true,
 	}
@@ -1392,3 +1392,71 @@ func TestModifyFile_NormalizeBlankLines_Unchanged(t *testing.T) {
 	assert.Equal(t, "line1\n\nline2_modified\n\nline3", string(content),
 		"runs of 2 blank lines should not be affected")
 }
+
+
+// TestModifyFile_ReplaceWritesLiteralBackslashN verifies that a literal
+// backslash+n in replace is written as-is (WYSIWYG), not interpreted as a
+// newline. Regression test for issue #48.
+func TestModifyFile_ReplaceWritesLiteralBackslashN(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "prefix suffix"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	// "\\n" in Go source is backslash+n (two chars) — must be written literally
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            " ",
+		"replace":         "\\n",
+		"all_occurrences": false,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "prefix\\nsuffix", string(content),
+		"literal backslash+n in replace should be written as-is, not decoded to newline")
+}
+
+// TestModifyFile_ReplaceWritesLiteralBackslashT verifies that a literal
+// backslash+t in replace is written as-is in regex mode (matching Go
+// regexp.ReplaceAllString semantics).
+func TestModifyFile_ReplaceWritesLiteralBackslashT(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	originalContent := "foo123bar"
+	err := os.WriteFile(filePath, []byte(originalContent), 0644)
+	require.NoError(t, err)
+
+	handler, err := NewFilesystemHandler(resolveAllowedDirs(t, dir))
+	require.NoError(t, err)
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "modify_file"
+	request.Params.Arguments = map[string]any{
+		"path":            filePath,
+		"find":            "[0-9]+",
+		"replace":         "\\t",
+		"regex":           true,
+		"all_occurrences": true,
+	}
+
+	result, err := handler.HandleModifyFile(context.Background(), request)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	content, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "foo\\tbar", string(content),
+		"regex mode: literal backslash+t in replace should be written as-is")
+}
+
