@@ -12,7 +12,7 @@ This file provides a glossary of domain terms used in the file-edit-fix project.
 - **mixed matching** — The replacement strategy used by `modify_file`: try exact byte-level match first, fall back to line-level trim comparison (ignoring leading whitespace) when exact match fails.
 - **dry_run** — A preview mode that reports what replacements would be made without actually writing to the file.
 - **atomic write** — Write-to-temp-then-rename pattern that ensures the file is either fully updated or unchanged (no partial writes on failure).
-- **escape sequence interpretation** — The `interpretEscapeSequences()` function that translates `\n`, `\r`, `\t`, `\\` in the replace string to actual characters before writing.
+- **escape sequence interpretation** — The `interpretEscapeSequences()` function that translates `\n`, `\r`, `\t`, `\` in the **find** string to actual characters before matching. Does NOT apply to the `replace` string, which is written literally.
 - **line-trim fallback** — When exact match fails, compares lines after stripping leading whitespace (`\t` and ` `). Allows matching code regardless of indentation differences.
 - **byte-offset replacement** — Using `startByte`/`endByte` offsets rather than line-by-line reconstruction to apply replacements. Preserves unchanged content exactly.
 - **CRLF normalization** — Converting `\r\n` to `\n` at read time so all matching operates on a consistent line-ending representation.
